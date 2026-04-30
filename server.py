@@ -1298,6 +1298,82 @@ def get_stats():
     })
 
 
+@app.route("/debug/ollama", methods=["GET"])
+def debug_ollama():
+    """Debug endpoint -- shows Ollama startup log and system info."""
+    import subprocess
+    import shutil
+
+    ollama_log = ""
+    try:
+        with open("/tmp/ollama.log", "r") as f:
+            ollama_log = f.read()[-5000:]  # last 5KB
+    except Exception as e:
+        ollama_log = f"Could not read log: {e}"
+
+    # Check if ollama binary exists
+    ollama_bin = shutil.which("ollama")
+
+    # Check if ollama process is running
+    ollama_running = False
+    try:
+        result = subprocess.run(["pgrep", "-f", "ollama"], capture_output=True, text=True, timeout=5)
+        ollama_running = result.returncode == 0
+        ollama_pids = result.stdout.strip()
+    except Exception:
+        ollama_pids = "pgrep failed"
+
+    # Try to reach ollama
+    ollama_reachable = False
+    ollama_api_error = ""
+    try:
+        r = http_req.get(f"{OLLAMA_URL}/api/tags", timeout=3)
+        ollama_reachable = r.status_code == 200
+    except Exception as e:
+        ollama_api_error = str(e)
+
+    # System info
+    mem_info = ""
+    try:
+        with open("/proc/meminfo", "r") as f:
+            for line in f:
+                if any(k in line for k in ["MemTotal", "MemAvailable", "MemFree"]):
+                    mem_info += line
+    except Exception:
+        mem_info = "unavailable"
+
+    # Check OLLAMA_MODELS directory
+    models_dir = os.environ.get("OLLAMA_MODELS", "/root/.ollama/models")
+    models_exist = os.path.isdir(models_dir)
+    model_files = []
+    if models_exist:
+        try:
+            for root, dirs, files in os.walk(models_dir):
+                for f in files:
+                    fp = os.path.join(root, f)
+                    model_files.append({"path": fp, "size": os.path.getsize(fp)})
+        except Exception:
+            pass
+
+    return jsonify({
+        "ollama_binary": ollama_bin,
+        "ollama_running": ollama_running,
+        "ollama_pids": ollama_pids,
+        "ollama_reachable": ollama_reachable,
+        "ollama_api_error": ollama_api_error,
+        "ollama_url": OLLAMA_URL,
+        "ollama_log": ollama_log,
+        "memory": mem_info,
+        "models_dir": models_dir,
+        "models_dir_exists": models_exist,
+        "model_files_count": len(model_files),
+        "model_files": model_files[:20],
+        "env_OLLAMA_URL": os.environ.get("OLLAMA_URL", "NOT SET"),
+        "env_OLLAMA_MODELS": os.environ.get("OLLAMA_MODELS", "NOT SET"),
+        "env_OLLAMA_HOST": os.environ.get("OLLAMA_HOST", "NOT SET"),
+    })
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5050))
     print(f"Prefrontal Compressor v3 starting on port {port}")
