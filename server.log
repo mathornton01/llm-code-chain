@@ -1,0 +1,15 @@
+Prefrontal Compressor v3 starting on port 5050
+Ollama: http://127.0.0.1:11434
+Reference: default v5 (dde682736e62)
+GUI: http://localhost:5050
+ * Serving Flask app 'server'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5050
+ * Running on http://172.25.193.87:5050
+[33mPress CTRL+C to quit[0m
+127.0.0.1 - - [29/Apr/2026 22:13:45] "GET /api HTTP/1.1" 200 -
+127.0.0.1 - - [29/Apr/2026 22:14:44] "POST /chain HTTP/1.1" 200 -
+127.0.0.1 - - [30/Apr/2026 03:18:06] "GET /models HTTP/1.1" 200 -
+127.0.0.1 - - [30/Apr/2026 03:19:09] "GET /models HTTP/1.1" 200 -

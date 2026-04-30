@@ -4,17 +4,18 @@ Encoder: compresses natural language prompts into minimal token codes.
 Strategy:
   1. Structural analysis -- identify intent, entities, relationships
   2. Codebook lookup -- replace known phrases with short codes
-  3. LLM compression -- use the model to further compress novel content
+  3. LLM compression -- use Ollama to further compress novel content
   4. Packaging -- produce final compact representation
 """
 
-from llama_cpp import Llama
+import requests
 from codebook import Codebook
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional
 import re
-import json
 import time
 
+OLLAMA_URL = "http://127.0.0.1:11434"
+DEFAULT_MODEL = "qwen2.5:1.5b"
 
 ENCODE_PROMPT = """Compress this text to the shortest possible form. Keep key words, drop filler. Use symbols: & (and), | (or), > (causes), = (equals), Q (question), C (command).
 
@@ -25,10 +26,11 @@ Short:"""
 class Encoder:
     """Encodes natural language into compact code representations."""
 
-    def __init__(self, model_path: str, codebook: Optional[Codebook] = None):
+    def __init__(self, model: str = DEFAULT_MODEL, codebook: Optional[Codebook] = None,
+                 ollama_url: str = OLLAMA_URL):
         self.codebook = codebook or Codebook()
-        self.model_path = model_path
-        self.llm = None
+        self.model = model
+        self.ollama_url = ollama_url
         self.stats = {
             "total_encoded": 0,
             "total_input_chars": 0,
@@ -36,19 +38,23 @@ class Encoder:
             "avg_compression": 0.0,
         }
 
-    def _ensure_model(self):
-        """Lazy-load the model."""
-        if self.llm is None:
-            self.llm = Llama(
-                model_path=self.model_path,
-                n_ctx=1024,
-                n_threads=4,
-                verbose=False,
-            )
+    def _ollama_generate(self, prompt: str, max_tokens: int = 64, temperature: float = 0.1) -> str:
+        """Call Ollama generate API."""
+        r = requests.post(f"{self.ollama_url}/api/generate", json={
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "num_predict": max_tokens,
+                "temperature": temperature,
+                "stop": ["\n", "\n\n"],
+            }
+        }, timeout=120)
+        r.raise_for_status()
+        return r.json().get("response", "").strip()
 
     def _pre_compress(self, text: str) -> str:
         """Aggressive rule-based compression."""
-        # Detect intent prefix
         intent = ""
         lower = text.lower().strip()
         if lower.startswith(("what ", "how ", "why ", "when ", "where ", "who ")):
@@ -62,7 +68,6 @@ class Encoder:
 
         result = text.strip()
 
-        # Remove filler words (order matters -- longer phrases first)
         removals = [
             "can you ", "could you ", "would you ", "please ",
             "i would like to ", "i want to ", "i need to ",
@@ -88,49 +93,23 @@ class Encoder:
             r = r.replace(filler, " ")
         result = r.strip()
 
-        # Collapse whitespace
         result = re.sub(r'\s+', ' ', result).strip()
 
-        # Apply codebook substitutions
+        # Use the codebook's full_encode for phrase + vocabulary substitution
+        result, _subs = self.codebook.full_encode(result)
+
+        # Abbreviate remaining long words not in codebook
+        all_codes = set(self.codebook.vocabulary.values()) | set(self.codebook.phrases.values()) | set(self.codebook.learned.values())
         words = result.split()
-        coded = []
-        skip_next = 0
-        for i, w in enumerate(words):
-            if skip_next > 0:
-                skip_next -= 1
-                continue
-
-            # Try trigram match
-            if i + 2 < len(words):
-                tri = f"{w} {words[i+1]} {words[i+2]}".lower()
-                if tri in self.codebook.reverse:
-                    coded.append(self.codebook.reverse[tri])
-                    skip_next = 2
-                    continue
-
-            # Try bigram match
-            if i + 1 < len(words):
-                bi = f"{w} {words[i+1]}".lower()
-                if bi in self.codebook.reverse:
-                    coded.append(self.codebook.reverse[bi])
-                    skip_next = 1
-                    continue
-
-            # Single word
-            coded.append(self.codebook.encode_token(w))
-
-        # Abbreviate remaining long words
         final = []
-        for token in coded:
-            if len(token) > 6 and token.lower() not in self.codebook.reverse:
-                # Keep first 4 chars of long unknown words
+        for token in words:
+            if len(token) > 6 and token not in all_codes:
                 final.append(token[:4])
             else:
                 final.append(token)
 
         compressed = intent + ' '.join(final)
 
-        # Replace common connectors with symbols
         compressed = compressed.replace(' and ', '&')
         compressed = compressed.replace(' or ', '|')
         compressed = compressed.replace(' but ', '^')
@@ -144,19 +123,9 @@ class Encoder:
         return compressed.strip()
 
     def _llm_compress(self, text: str, pre_compressed: str) -> str:
-        """Use the LLM to further compress."""
-        self._ensure_model()
-
+        """Use Ollama to further compress."""
         prompt = ENCODE_PROMPT.format(text=text)
-
-        output = self.llm(
-            prompt,
-            max_tokens=64,
-            temperature=0.1,
-            stop=["\n", "\n\n"],
-        )
-
-        result = output["choices"][0]["text"].strip()
+        result = self._ollama_generate(prompt, max_tokens=64, temperature=0.1)
 
         # Clean artifacts
         result = result.replace('"', '').replace("'", "")
@@ -164,16 +133,13 @@ class Encoder:
             if result.startswith(prefix):
                 result = result[len(prefix):].strip()
 
-        # If LLM returned empty or longer than pre-compressed, fall back
         if not result or len(result) >= len(pre_compressed):
             return pre_compressed
 
         return result
 
     def encode(self, text: str, use_llm: bool = True) -> Dict:
-        """
-        Encode a natural language prompt into compact code.
-        """
+        """Encode a natural language prompt into compact code."""
         start = time.time()
 
         pre_compressed = self._pre_compress(text)
@@ -181,7 +147,6 @@ class Encoder:
         if use_llm:
             try:
                 llm_result = self._llm_compress(text, pre_compressed)
-                # Use whichever is shorter
                 if len(llm_result) < len(pre_compressed):
                     code = llm_result
                     method = "llm"
@@ -199,7 +164,7 @@ class Encoder:
 
         tokens_orig = max(1, len(text) // 4)
         tokens_enc = max(1, len(code) // 4)
-        ratio = self.codebook.compress_ratio(text, code)
+        ratio = 1.0 - (len(code) / max(1, len(text)))
 
         self.stats["total_encoded"] += 1
         self.stats["total_input_chars"] += len(text)

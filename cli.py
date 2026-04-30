@@ -3,6 +3,7 @@
 CLI interface for LLM Code Chain.
 
 Interactive REPL for encoding/decoding prompts.
+Uses Ollama for local LLM inference.
 """
 
 import sys
@@ -17,11 +18,12 @@ from decoder import Decoder
 from codebook import Codebook
 from trainer import Trainer
 
-MODEL_PATH = "/home/herald/models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
+DEFAULT_MODEL = os.environ.get("LCC_MODEL", "qwen2.5:1.5b")
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 
 HELP = """
-LLM Code Chain -- Interactive CLI
-==================================
+LLM Code Chain -- Interactive CLI (Ollama backend)
+====================================================
 
 Commands:
   encode <text>     Compress text to minimal code
@@ -30,6 +32,7 @@ Commands:
   train [n]         Run n training rounds (default: 1)
   codebook          Show current codebook
   stats             Show compression statistics
+  model <name>      Switch Ollama model (e.g. phi3:mini, llama3.2:1b)
   fast              Toggle LLM off (rule-based only, instant)
   slow              Toggle LLM on (better compression, slower)
   help              Show this help
@@ -44,15 +47,15 @@ Shortcuts:
 
 
 def main():
-    print("\nLLM Code Chain v0.1.0")
-    print("Loading model...", end=" ", flush=True)
+    print(f"\nLLM Code Chain v0.2.0 (Ollama)")
+    print(f"Model: {DEFAULT_MODEL} @ {OLLAMA_URL}")
 
     codebook = Codebook()
-    encoder = Encoder(MODEL_PATH, codebook)
-    decoder = Decoder(MODEL_PATH, codebook)
+    model = DEFAULT_MODEL
+    encoder = Encoder(model=model, codebook=codebook, ollama_url=OLLAMA_URL)
+    decoder = Decoder(model=model, codebook=codebook, ollama_url=OLLAMA_URL)
 
     use_llm = True
-    print("ready.")
     print(f"Mode: {'LLM-assisted' if use_llm else 'Rule-based (fast)'}")
     print("Type 'help' for commands.\n")
 
@@ -76,6 +79,15 @@ def main():
 
         elif cmd in ("help", "h", "?"):
             print(HELP)
+
+        elif cmd in ("model", "m"):
+            if not arg:
+                print(f"  Current model: {model}")
+                continue
+            model = arg.strip()
+            encoder = Encoder(model=model, codebook=codebook, ollama_url=OLLAMA_URL)
+            decoder = Decoder(model=model, codebook=codebook, ollama_url=OLLAMA_URL)
+            print(f"  Switched to model: {model}")
 
         elif cmd in ("encode", "e"):
             if not arg:
@@ -122,19 +134,20 @@ def main():
 
         elif cmd in ("train", "t"):
             rounds = int(arg) if arg.isdigit() else 1
-            trainer = Trainer(MODEL_PATH, codebook)
+            trainer = Trainer(model=model, codebook=codebook, ollama_url=OLLAMA_URL)
             trainer.train(rounds=rounds, use_llm=use_llm)
 
         elif cmd in ("codebook", "cb"):
             stats = codebook.get_stats()
             print(f"\n  Codebook v{stats['version']}")
             print(f"  Total codes:   {stats['total_codes']}")
-            print(f"  Base codes:    {stats['base_codes']}")
-            print(f"  Learned codes: {stats['learned_codes']}")
+            print(f"  Vocabulary:    {stats['vocabulary_count']}")
+            print(f"  Phrases:       {stats['phrase_count']}")
+            print(f"  Learned codes: {stats['learned_count']}")
             if stats['top_used']:
                 print(f"\n  Top used codes:")
                 for code, count in stats['top_used'][:10]:
-                    meaning = codebook.codes.get(code, '?')
+                    meaning = codebook.decode_vocab.get(code, codebook.decode_phrases.get(code, codebook.decode_learned.get(code, '?')))
                     print(f"    {code:8s} = {meaning:30s} (used {count}x)")
             print()
 

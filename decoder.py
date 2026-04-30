@@ -4,15 +4,17 @@ Decoder: reconstructs meaning from compact code representations.
 Strategy:
   1. Code parsing -- identify structure markers, operators, codes
   2. Codebook expansion -- expand known codes to meanings
-  3. LLM reconstruction -- use the model to produce natural language
+  3. LLM reconstruction -- use Ollama to produce natural language
 """
 
-from llama_cpp import Llama
+import requests
 from codebook import Codebook
 from typing import Dict, Optional
 import re
 import time
 
+OLLAMA_URL = "http://127.0.0.1:11434"
+DEFAULT_MODEL = "qwen2.5:1.5b"
 
 DECODE_PROMPT = """Expand this compressed text back into a clear English sentence. The symbols mean: & (and), | (or), > (leads to), < (from), = (equals), Q (question), C (command), R (request), X (explain).
 
@@ -24,28 +26,34 @@ English:"""
 class Decoder:
     """Decodes compact codes back into natural language."""
 
-    def __init__(self, model_path: str, codebook: Optional[Codebook] = None):
+    def __init__(self, model: str = DEFAULT_MODEL, codebook: Optional[Codebook] = None,
+                 ollama_url: str = OLLAMA_URL):
         self.codebook = codebook or Codebook()
-        self.model_path = model_path
-        self.llm = None
+        self.model = model
+        self.ollama_url = ollama_url
         self.stats = {
             "total_decoded": 0,
             "total_input_chars": 0,
             "total_output_chars": 0,
         }
 
-    def _ensure_model(self):
-        if self.llm is None:
-            self.llm = Llama(
-                model_path=self.model_path,
-                n_ctx=1024,
-                n_threads=4,
-                verbose=False,
-            )
+    def _ollama_generate(self, prompt: str, max_tokens: int = 128, temperature: float = 0.3) -> str:
+        """Call Ollama generate API."""
+        r = requests.post(f"{self.ollama_url}/api/generate", json={
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "num_predict": max_tokens,
+                "temperature": temperature,
+                "stop": ["\n\n", "\n"],
+            }
+        }, timeout=120)
+        r.raise_for_status()
+        return r.json().get("response", "").strip()
 
     def _expand_codes(self, code: str) -> str:
         """Rule-based expansion of codes to meanings."""
-        # First expand symbols back to words
         result = code
         result = result.replace('&', ' and ')
         result = result.replace('|', ' or ')
@@ -55,17 +63,18 @@ class Decoder:
         result = result.replace('<', ' from ')
         result = result.replace('=', ' equals ')
 
-        # Remove intent prefixes (they're structural, not content)
         for prefix in ['Q ', 'C ', 'R ', 'X ', 'D ', 'A ']:
             if result.startswith(prefix):
                 result = result[2:]
                 break
 
-        # Expand codebook tokens
+        # Use codebook's decode_text for reverse lookup
+        result = self.codebook.decode_text(result)
+
+        # Also handle domain prefixes
         tokens = result.split()
         expanded = []
         for token in tokens:
-            # Check for domain prefix
             if '.' in token and len(token.split('.')[0]) == 1:
                 parts = token.split('.', 1)
                 prefix_map = {
@@ -76,27 +85,15 @@ class Decoder:
                 domain = prefix_map.get(parts[0], '')
                 expanded.append(f"{domain} {parts[1]}" if domain else token)
             else:
-                meaning = self.codebook.decode_token(token)
-                expanded.append(meaning)
+                expanded.append(token)
 
         return ' '.join(expanded)
 
     def _llm_decode(self, code: str, expanded: str) -> str:
-        """Use LLM to reconstruct natural language."""
-        self._ensure_model()
-
+        """Use Ollama to reconstruct natural language."""
         prompt = DECODE_PROMPT.format(code=code, expanded=expanded)
+        result = self._ollama_generate(prompt, max_tokens=128, temperature=0.3)
 
-        output = self.llm(
-            prompt,
-            max_tokens=128,
-            temperature=0.3,
-            stop=["\n\n", "\n"],
-        )
-
-        result = output["choices"][0]["text"].strip()
-
-        # Clean artifacts
         for prefix in ["English:", "Decoded:", "Output:", "Expanded:"]:
             if result.startswith(prefix):
                 result = result[len(prefix):].strip()
