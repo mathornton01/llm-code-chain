@@ -33,7 +33,7 @@ import requests as http_req
 
 app = Flask(__name__)
 
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "") or "http://127.0.0.1:11434"
 
 # Active reference file
 active_ref = SharedReference("default")
@@ -592,7 +592,13 @@ def api_info():
 @app.route("/models", methods=["GET"])
 def get_models():
     models = ollama_models()
-    ollama_available = len(models) > 0
+    # Check if Ollama is reachable even if no models are pulled yet
+    ollama_available = False
+    try:
+        r = http_req.get(f"{OLLAMA_URL}/api/tags", timeout=5)
+        ollama_available = r.status_code == 200
+    except Exception:
+        pass
     return jsonify({"models": models, "ollama_url": OLLAMA_URL, "ollama_available": ollama_available})
 
 

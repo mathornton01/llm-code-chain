@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system deps + curl for Ollama install
+# Install system deps + curl for Ollama install + zstd for model layers
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates zstd \
     && rm -rf /var/lib/apt/lists/*
@@ -17,12 +17,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Pre-pull the smallest model during build so startup is fast
-RUN ollama serve & sleep 3 && ollama pull qwen2.5:1.5b && kill %1 2>/dev/null || true
+RUN ollama serve & sleep 5 && ollama pull qwen2.5:1.5b && kill %1 2>/dev/null || true
 
+# Ensure OLLAMA_URL is always set -- Railway may set it to empty string
+# so start.sh also applies the default at runtime
 ENV OLLAMA_URL=http://127.0.0.1:11434
 
 EXPOSE 5050
 
-COPY start.sh .
 RUN chmod +x start.sh
 CMD ["./start.sh"]
