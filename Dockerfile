@@ -7,9 +7,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates zstd procps \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Ollama -- download the binary directly (skip the install.sh entirely)
-RUN curl -fsSL -o /usr/local/bin/ollama https://ollama.com/download/ollama-linux-amd64 \
-    && chmod +x /usr/local/bin/ollama \
+# Install Ollama -- download the tar.zst archive and extract
+RUN curl -fsSL -o /tmp/ollama.tar.zst https://github.com/ollama/ollama/releases/download/v0.22.0/ollama-linux-amd64.tar.zst \
+    && zstd -d /tmp/ollama.tar.zst -o /tmp/ollama.tar \
+    && tar xf /tmp/ollama.tar -C /usr --strip-components=0 \
+    && rm -f /tmp/ollama.tar.zst /tmp/ollama.tar \
     && ollama --version
 
 # Set model storage location
