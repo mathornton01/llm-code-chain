@@ -129,7 +129,7 @@ def ollama_models() -> list:
 
 def layer_distill(text: str, model: str, layer_num: int,
                    provider: str = "ollama", api_key: str = "",
-                   temperature: float = 0.15) -> dict:
+                   temperature: float = 0.3) -> dict:
     """
     DISTILL layer: LLM rephrases the text to preserve meaning in fewer words.
 
@@ -139,14 +139,14 @@ def layer_distill(text: str, model: str, layer_num: int,
     """
     start = time.time()
 
-    prompt = f"""You are a text compressor. Rewrite the input in as few characters as possible while keeping ALL meaning. Be extremely aggressive.
+    prompt = f"""You are a careful text compressor. Rewrite the input more concisely while preserving ALL meaning, distinctions, and key details. Aim for roughly 40-60% of original length.
 
 RULES:
-1. Remove ALL filler: the, a, an, very, just, really, basically, actually, simply, please, could you, would you, I would like, I need you to
-2. Abbreviate aggressively: function->fn, implement->impl, configure->cfg, information->info, development->dev, environment->env, database->db, authentication->auth, application->app, message->msg, request->req, response->res, parameter->param, argument->arg, variable->var, number->num, string->str, array->arr, object->obj, error->err, exception->ex, library->lib, package->pkg, dependency->dep, documentation->doc, repository->repo, directory->dir, network->net, because->bc, between->btwn, through->thru, without->w/o, with->w/, should->shd, would->wd, about->abt, before->b4, after->aft
-3. Drop ALL articles, pronouns, copulas (is/are/was/were) where meaning survives
-4. Merge short phrases: "in order to" -> "to", "as well as" -> "&", "due to the fact" -> "bc"
-5. Keep technical terms and proper nouns intact
+1. Remove obvious filler: very, just, really, basically, actually, simply, please, I would like to, I need you to
+2. Use common abbreviations only when unambiguous: function->fn, implement->impl, configure->cfg, information->info, database->db, authentication->auth, application->app, documentation->doc, repository->repo, environment->env
+3. Keep articles and pronouns when removing them would create ambiguity
+4. Preserve ALL technical terms, proper nouns, and distinguishing details
+5. Do NOT merge separate concepts -- keep distinct ideas distinguishable
 6. Output ONLY the compressed text. No quotes, labels, explanations, or prefixes.
 
 INPUT: {text}
@@ -158,7 +158,7 @@ OUTPUT:"""
     input_unique = len(set(w.lower().strip(".,!?;:") for w in input_words))
 
     try:
-        raw = generate_text(provider, model, prompt, max_tokens=256,
+        raw = generate_text(provider, model, prompt, max_tokens=512,
                             temperature=temperature, api_key=api_key)
     except Exception as e:
         elapsed = (time.time() - start) * 1000
@@ -364,7 +364,7 @@ def layer_reference(text: str, ref: SharedReference, layer_num: int) -> dict:
 
 def layer_compact(text: str, model: str, layer_num: int,
                    provider: str = "ollama", api_key: str = "",
-                   temperature: float = 0.1) -> dict:
+                   temperature: float = 0.25) -> dict:
     """
     COMPACT layer: LLM compresses already-shortened text further.
 
@@ -375,11 +375,11 @@ def layer_compact(text: str, model: str, layer_num: int,
     """
     start = time.time()
 
-    prompt = f"""Compress this text further using symbols and merging. Make it as short as possible.
+    prompt = f"""Lightly compress this already-shortened text using a few symbols. Preserve all meaning and readability.
 
-SYMBOL MAP: and/also=+ then/leads_to=> is/equals== or=| but/however=^ at=@ about/topic=#
-DROP: of, to, for, in, on, by, it, do, if, the, a, an
-MERGE: adjacent words with > when sequential
+OPTIONAL SYMBOLS (use sparingly): and/also=+ or=| but/however=^
+KEEP all content words, technical terms, and distinguishing details.
+Only drop words if meaning is 100% preserved without them.
 
 Output ONLY the compressed result. No labels, quotes, explanation, or examples.
 
@@ -389,7 +389,7 @@ COMPRESSED:"""
     input_tokens = text.split()
 
     try:
-        raw = generate_text(provider, model, prompt, max_tokens=192,
+        raw = generate_text(provider, model, prompt, max_tokens=384,
                             temperature=temperature, api_key=api_key)
     except Exception as e:
         elapsed = (time.time() - start) * 1000
