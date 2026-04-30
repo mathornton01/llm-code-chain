@@ -49,10 +49,18 @@ if curl -sf http://127.0.0.1:11434/api/tags > /dev/null 2>&1; then
     echo "=== Ollama OK ==="
     ollama list 2>/dev/null || true
 
-    # Pull model if not present (baked in during build, but just in case)
+    # Pull models if not present
     if ! ollama list 2>/dev/null | grep -q "qwen2.5"; then
-        echo "Model not found, pulling qwen2.5:1.5b..."
-        ollama pull qwen2.5:1.5b 2>&1 &
+        echo "Pulling qwen2.5:1.5b..."
+        ollama pull qwen2.5:1.5b 2>&1
+    fi
+    if ! ollama list 2>/dev/null | grep -q "llama3.2"; then
+        echo "Pulling llama3.2:1b..."
+        ollama pull llama3.2:1b 2>&1
+    fi
+    if ! ollama list 2>/dev/null | grep -q "phi4-mini"; then
+        echo "Pulling phi4-mini..."
+        ollama pull phi4-mini 2>&1
     fi
 else
     echo "WARNING: Ollama not responding"
