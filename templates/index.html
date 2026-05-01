@@ -3,539 +3,1644 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Prefrontal Compressor v3</title>
+<title>Prefrontal Compressor v4</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'SF Mono','Fira Code','Consolas',monospace;background:#08080c;color:#b0b4b8;font-size:11px;display:flex;flex-direction:column;height:100vh}
 
-/* Top bar */
-.topbar{background:#0e0e14;border-bottom:1px solid #1a1a24;padding:0 10px;display:flex;align-items:center;gap:10px;height:28px;flex-shrink:0}
-.topbar .logo{color:#6ee7b7;font-weight:700;font-size:11px;letter-spacing:1px}
-.topbar .sep{color:#2a2a3a}
-.topbar .tag{color:#555;font-size:9px}
-.topbar .right{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:9px;color:#666}
-.topbar .dot{width:5px;height:5px;border-radius:50%;background:#f87171}
-.topbar .dot.ok{background:#4ade80}
+:root {
+  --bg-base: #0a0a0f;
+  --bg-surface: #12121a;
+  --bg-elevated: #1a1a26;
+  --bg-hover: #22222e;
+  --border: #2a2a3a;
+  --border-subtle: #1e1e2e;
+  --text-primary: #e4e4ed;
+  --text-secondary: #8888a0;
+  --text-muted: #5a5a72;
+  --accent: #6ee7b7;
+  --accent-dim: #059669;
+  --accent-bg: #0d2818;
+  --purple: #a78bfa;
+  --purple-bg: #1a1830;
+  --blue: #60a5fa;
+  --blue-bg: #1a2030;
+  --yellow: #fbbf24;
+  --yellow-bg: #2d2a0a;
+  --red: #f87171;
+  --red-bg: #2d0a0a;
+  --orange: #fb923c;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.4);
+  --shadow-lg: 0 8px 30px rgba(0,0,0,.5);
+  --transition: .2s ease;
+}
 
-/* Layout -- top columns + bottom codebook */
-.main{display:grid;grid-template-columns:1fr 1fr 1fr;flex:1;min-height:0;overflow:hidden}
-.col{display:flex;flex-direction:column;overflow:hidden;border-right:1px solid #1a1a24}
-.col:last-child{border-right:none}
-.col-head{background:#0e0e14;border-bottom:1px solid #1a1a24;padding:4px 8px;font-size:9px;font-weight:600;color:#666;text-transform:uppercase;letter-spacing:1px;display:flex;align-items:center;gap:6px;flex-shrink:0}
-.col-head .badge{background:#151520;color:#6ee7b7;padding:1px 5px;border-radius:2px;font-size:8px}
-.col-body{flex:1;overflow-y:auto;padding:8px}
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
 
-/* Bottom codebook bar */
-.codebook-bar{border-top:1px solid #1a1a24;background:#0a0a10;flex-shrink:0;overflow:hidden;transition:height .3s}
-.codebook-bar.collapsed{height:28px}
-.codebook-bar.expanded{height:240px}
-.codebook-bar-head{background:#0e0e14;border-bottom:1px solid #1a1a24;padding:4px 10px;display:flex;align-items:center;gap:8px;font-size:9px;font-weight:600;color:#a78bfa;text-transform:uppercase;letter-spacing:1px;cursor:pointer;height:28px;flex-shrink:0}
-.codebook-bar-head:hover{background:#121218}
-.codebook-bar-head .cb-toggle{margin-left:auto;color:#555;font-size:8px}
-.codebook-bar-head .cb-stats{display:flex;gap:10px;font-size:8px;color:#555;font-weight:400;text-transform:none;letter-spacing:0}
-.codebook-bar-head .cb-stats .cv{font-weight:700}
-.codebook-bar-head .cb-stats .cv.vocab{color:#4ade80}
-.codebook-bar-head .cb-stats .cv.phrase{color:#a78bfa}
-.codebook-bar-head .cb-stats .cv.learned{color:#60a5fa}
-.codebook-bar-body{display:flex;height:calc(100% - 28px);overflow:hidden}
-.codebook-bar-body .cb-controls{padding:6px 10px;display:flex;flex-direction:column;gap:4px;width:200px;border-right:1px solid #1a1a24;flex-shrink:0}
-.codebook-bar-body .cb-scroll{flex:1;overflow-y:auto;padding:4px 8px}
-.cb-table{width:100%;border-collapse:collapse}
-.cb-table th{text-align:left;font-size:7px;color:#555;text-transform:uppercase;letter-spacing:.5px;padding:2px 6px;border-bottom:1px solid #1a1a24;position:sticky;top:0;background:#0a0a10;z-index:1}
-.cb-table td{padding:2px 6px;border-bottom:1px solid #0e0e14;font-size:9px}
-.cb-table tr:hover{background:#0e0e16}
-.cb-table tr.highlight{background:#1a2830;animation:fadeHighlight 3s ease-out}
-@keyframes fadeHighlight{from{background:#1a3830}to{background:transparent}}
-.cb-word{color:#d0d4d8}.cb-code{color:#fbbf24;font-weight:600}
-.cb-type-tag{font-size:7px;padding:1px 3px;border-radius:2px;font-weight:600}
-.cb-type-tag.vocab{background:#0d2818;color:#4ade80}
-.cb-type-tag.phrase{background:#1a1830;color:#a78bfa}
-.cb-type-tag.learned{background:#1a2030;color:#60a5fa}
-.cb-freq{color:#555;font-size:8px;text-align:right}
+/* ===== NAVBAR ===== */
+.navbar {
+  background: linear-gradient(180deg, #14141e 0%, #10101a 100%);
+  border-bottom: 1px solid var(--border);
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  height: 48px;
+  flex-shrink: 0;
+  gap: 16px;
+}
+.navbar .logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.navbar .logo-icon {
+  width: 28px;
+  height: 28px;
+  background: linear-gradient(135deg, var(--accent) 0%, #34d399 50%, var(--purple) 100%);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: #000;
+  font-family: 'JetBrains Mono', monospace;
+}
+.navbar .logo-text {
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: -.3px;
+  color: var(--text-primary);
+}
+.navbar .logo-ver {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 400;
+  padding: 2px 6px;
+  background: var(--bg-elevated);
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.navbar .sep { color: var(--border); font-size: 16px; }
+.nav-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.nav-info .ni-label { color: var(--text-muted); }
+.nav-info .ni-val { color: var(--text-secondary); font-weight: 500; }
+.nav-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.status-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+}
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--red);
+  transition: background var(--transition);
+}
+.status-dot.ok { background: var(--accent); box-shadow: 0 0 8px rgba(110,231,183,.4); }
 
-/* Inputs */
-textarea{width:100%;background:#0b0b12;border:1px solid #1a1a24;color:#d0d4d8;padding:6px;font-family:inherit;font-size:11px;resize:vertical;border-radius:3px;min-height:60px}
-textarea:focus{outline:none;border-color:#6ee7b7}
-label.field{display:block;color:#555;font-size:9px;margin-bottom:2px;text-transform:uppercase;letter-spacing:.5px}
+/* ===== MAIN LAYOUT ===== */
+.app-layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
 
-/* Buttons */
-.btn{padding:3px 10px;border:1px solid #1a1a24;background:#0e0e14;color:#b0b4b8;font-family:inherit;font-size:10px;border-radius:3px;cursor:pointer;transition:all .12s}
-.btn:hover{background:#161620;border-color:#2a2a3a}
-.btn.primary{background:#054032;border-color:#059669;color:#a7f3d0}
-.btn.primary:hover{background:#065f46}
-.btn.submit-btn{background:#1e2d5f;border-color:#3b82f6;color:#93c5fd}
-.btn.submit-btn:hover{background:#1e3a8a}
-.btn.train-btn{background:#4a2040;border-color:#a855f7;color:#d8b4fe}
-.btn.train-btn:hover{background:#5b2d50}
-.btn:disabled{opacity:.3;cursor:not-allowed}
-.btn.sm{padding:2px 6px;font-size:9px}
+/* Left panel -- input & config */
+.panel-left {
+  width: 420px;
+  min-width: 360px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  flex-shrink: 0;
+}
 
-/* Controls */
-.row{display:flex;gap:4px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
-select,input[type="number"],input[type="text"],input[type="password"]{background:#0b0b12;border:1px solid #1a1a24;color:#d0d4d8;padding:2px 4px;font-family:inherit;font-size:10px;border-radius:2px}
-select:focus,input:focus{outline:none;border-color:#6ee7b7}
+/* Center panel -- results */
+.panel-center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg-base);
+}
 
-/* Layer config cards */
-.layer-cfg{border:1px solid #1a1a24;border-radius:3px;margin-bottom:4px;background:#0b0b12}
-.layer-cfg-head{padding:3px 6px;display:flex;align-items:center;gap:4px;font-size:9px;color:#666}
-.layer-cfg-head .num{width:16px;height:16px;display:flex;align-items:center;justify-content:center;border-radius:2px;font-weight:700;font-size:8px}
-.layer-cfg-head .num.distill{background:#0d2818;color:#4ade80}
-.layer-cfg-head .num.reference{background:#1a1830;color:#a78bfa}
-.layer-cfg-head .num.compact{background:#1a2030;color:#60a5fa}
-.layer-cfg-head select{flex:1}
-.layer-cfg-head .type-label{font-size:8px;padding:1px 4px;border-radius:2px;font-weight:600}
-.layer-cfg-head .type-label.distill{background:#0d2818;color:#4ade80}
-.layer-cfg-head .type-label.reference{background:#1a1830;color:#a78bfa}
-.layer-cfg-head .type-label.compact{background:#1a2030;color:#60a5fa}
-.layer-cfg-head .remove{color:#f87171;cursor:pointer;font-size:9px;padding:0 2px}
-.layer-cfg-head .remove:hover{color:#fca5a5}
-.layer-cfg-row2{padding:2px 6px 3px;display:flex;align-items:center;gap:4px;font-size:8px;color:#555;border-top:1px solid #111118}
-.layer-cfg-row2 .provider-label{color:#666;font-size:7px;text-transform:uppercase}
+/* Right panel -- response */
+.panel-right {
+  width: 380px;
+  min-width: 300px;
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  flex-shrink: 0;
+}
 
-/* Provider badges */
-.provider-badge{font-size:7px;padding:1px 4px;border-radius:2px;font-weight:600;letter-spacing:.3px}
-.provider-badge.ollama{background:#1a2820;color:#4ade80}
-.provider-badge.claude{background:#1a1420;color:#d4a574}
-.provider-badge.gpt{background:#102018;color:#74d4a5}
-.provider-badge.grok{background:#1a1028;color:#a574d4}
+/* Panel headers */
+.panel-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.panel-header h2 {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -.2px;
+}
+.panel-header .badge {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent);
+  background: var(--accent-bg);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.panel-header .badge.purple { color: var(--purple); background: var(--purple-bg); }
+.panel-header .badge.blue { color: var(--blue); background: var(--blue-bg); }
+.panel-header .badge.yellow { color: var(--yellow); background: var(--yellow-bg); }
 
-/* Error/warning banners in layer cards */
-.layer-error-banner{background:#2d0a0a;border:1px solid #7f1d1d;border-radius:3px;padding:4px 8px;margin:4px 6px;font-size:9px;color:#fca5a5;font-weight:600}
-.layer-warn-banner{background:#2d2a0a;border:1px solid #78350f;border-radius:3px;padding:3px 8px;margin:4px 6px;font-size:9px;color:#fbbf24}
-.layer-error{border-color:#7f1d1d !important;background:#0e0808 !important}
-.ollama-warn{background:#2d1a0a;border:1px solid #92400e;border-radius:3px;padding:6px 10px;margin:6px 0;font-size:9px;color:#fbbf24}
-.ollama-warn a{color:#60a5fa;text-decoration:underline}
+.panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
 
-/* Result layers */
-.result-layer{border:1px solid #1a1a24;border-radius:3px;margin-bottom:4px;overflow:hidden;transition:all .3s}
-.result-layer-head{background:#0e0e14;padding:3px 6px;display:flex;align-items:center;gap:4px;font-size:9px}
-.result-layer-head .num{width:16px;height:16px;display:flex;align-items:center;justify-content:center;border-radius:2px;font-weight:700;font-size:8px}
-.result-layer-head .model-tag{color:#818cf8;font-size:8px}
-.result-layer-head .meta{margin-left:auto;display:flex;gap:6px;align-items:center}
-.result-layer-head .meta span{font-size:8px}
-.result-layer-head .ratio{color:#fbbf24}
-.result-layer-head .time{color:#818cf8}
-.result-layer-body{padding:4px 6px;font-size:10px;color:#c0c4c8;background:#0a0a10;word-break:break-all;white-space:pre-wrap;max-height:80px;overflow-y:auto}
-.result-layer-subs{padding:3px 6px;font-size:9px;color:#888;background:#0c0c14;border-top:1px solid #1a1a24;max-height:50px;overflow-y:auto}
-.result-layer-subs .sub-item{display:inline-block;margin-right:6px}
-.result-layer-subs .sub-from{color:#f87171;text-decoration:line-through}
-.result-layer-subs .sub-to{color:#4ade80}
-.result-layer-input{padding:3px 6px;font-size:9px;color:#666;background:#090910;border-bottom:1px solid #111118;max-height:50px;overflow-y:auto;word-break:break-all;white-space:pre-wrap}
-.result-layer-input .input-label{color:#444;font-size:8px;text-transform:uppercase}
+/* ===== FORM ELEMENTS ===== */
+.form-group { margin-bottom: 12px; }
+.form-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin-bottom: 6px;
+}
+
+textarea {
+  width: 100%;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 10px 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  resize: vertical;
+  border-radius: var(--radius-sm);
+  min-height: 100px;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(110,231,183,.1);
+}
+textarea::placeholder { color: var(--text-muted); }
+
+select, input[type="text"], input[type="password"], input[type="number"] {
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 6px 10px;
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+  transition: border-color var(--transition);
+}
+select:focus, input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* ===== BUTTONS ===== */
+.btn {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn:hover { background: var(--bg-hover); border-color: #3a3a4a; }
+.btn:active { transform: scale(.97); }
+.btn:disabled { opacity: .35; cursor: not-allowed; }
+
+.btn.primary {
+  background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+  border-color: #059669;
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(5,150,105,.3);
+}
+.btn.primary:hover { background: linear-gradient(135deg, #047857 0%, #059669 100%); box-shadow: 0 4px 12px rgba(5,150,105,.4); }
+
+.btn.submit-btn {
+  background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
+  border-color: #2563eb;
+  color: #fff;
+  font-weight: 600;
+}
+.btn.submit-btn:hover { background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%); }
+
+.btn.train-btn {
+  background: linear-gradient(135deg, #7c3aed 0%, #8b5cf6 100%);
+  border-color: #7c3aed;
+  color: #fff;
+}
+.btn.train-btn:hover { background: linear-gradient(135deg, #6d28d9 0%, #7c3aed 100%); }
+
+.btn.sm { padding: 4px 10px; font-size: 11px; }
+.btn.xs { padding: 2px 8px; font-size: 10px; }
+.btn.icon-btn { padding: 6px; width: 32px; justify-content: center; }
+
+/* ===== CARDS ===== */
+.card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  transition: border-color var(--transition);
+}
+.card:hover { border-color: #3a3a4a; }
+.card-header {
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 12px;
+}
+.card-body { padding: 10px 12px; }
+
+/* ===== REFERENCE SECTION ===== */
+.ref-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.ref-header {
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--purple);
+  cursor: pointer;
+  transition: background var(--transition);
+  background: var(--bg-elevated);
+}
+.ref-header:hover { background: var(--bg-hover); }
+.ref-header .toggle-icon {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-muted);
+  transition: transform var(--transition);
+}
+.ref-header .toggle-icon.open { transform: rotate(90deg); }
+.ref-body { padding: 10px 12px; display: none; }
+.ref-body.open { display: block; }
+.ref-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+}
+.ref-stat-item {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.ref-stat-item .rv { color: var(--purple); font-weight: 600; font-family: 'JetBrains Mono', monospace; }
+
+/* ===== LAYER CONFIG ===== */
+.layer-cfg {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-bottom: 6px;
+  overflow: hidden;
+  background: var(--bg-elevated);
+  transition: all var(--transition);
+}
+.layer-cfg:hover { border-color: #3a3a4a; }
+.layer-cfg-head {
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.layer-num {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.layer-num.discover, .layer-num.distill { background: var(--accent-bg); color: var(--accent); }
+.layer-num.reference { background: var(--purple-bg); color: var(--purple); }
+.layer-num.structural, .layer-num.compact { background: var(--blue-bg); color: var(--blue); }
+.type-tag {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+}
+.type-tag.discover, .type-tag.distill { background: var(--accent-bg); color: var(--accent); }
+.type-tag.reference { background: var(--purple-bg); color: var(--purple); }
+.type-tag.structural, .type-tag.compact { background: var(--blue-bg); color: var(--blue); }
+.layer-cfg-head .remove-btn {
+  margin-left: auto;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  transition: color var(--transition);
+  background: none;
+  border: none;
+  font-family: inherit;
+  padding: 0 4px;
+}
+.layer-cfg-head .remove-btn:hover { color: var(--red); }
+.layer-cfg-row2 {
+  padding: 4px 12px 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  border-top: 1px solid var(--border-subtle);
+}
+.provider-badge {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  letter-spacing: .3px;
+  text-transform: uppercase;
+}
+.provider-badge.ollama { background: var(--accent-bg); color: var(--accent); }
+.provider-badge.claude { background: #1a140d; color: #d4a574; }
+.provider-badge.gpt { background: #102018; color: #74d4a5; }
+.provider-badge.grok { background: #140d1a; color: #a574d4; }
+
+/* ===== LAYER BUTTONS ROW ===== */
+.layer-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.layer-actions .sep { flex: 1; }
+
+/* ===== OLLAMA WARNING ===== */
+.ollama-warn {
+  background: var(--yellow-bg);
+  border: 1px solid #78350f;
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--yellow);
+  display: none;
+  line-height: 1.5;
+}
+.ollama-warn a { color: var(--blue); text-decoration: underline; }
+
+/* ===== COMPRESS BUTTON ===== */
+.compress-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+.compress-row .shortcut {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ===== PROCESSING STATUS ===== */
+.process-status {
+  background: var(--bg-surface);
+  border: 1px solid var(--accent-dim);
+  border-radius: var(--radius-md);
+  margin-bottom: 12px;
+  overflow: hidden;
+  box-shadow: 0 0 20px rgba(5,150,105,.08);
+}
+.process-status-bar {
+  display: flex;
+  align-items: center;
+  padding: 10px 14px;
+  gap: 10px;
+  font-size: 12px;
+}
+.process-status-bar .ps-label {
+  color: var(--accent);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: .5px;
+}
+.process-status-bar .ps-detail { color: var(--text-secondary); flex: 1; }
+.process-status-bar .ps-elapsed {
+  color: var(--yellow);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 500;
+}
+.progress-track {
+  height: 3px;
+  background: var(--bg-base);
+}
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+  transition: width .4s ease-out;
+  width: 0;
+  border-radius: 0 2px 2px 0;
+}
+
+/* ===== LIVE TEXT ===== */
+.live-text-section { margin-bottom: 12px; display: none; }
+.live-text-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.live-text-label .char-count {
+  color: var(--yellow);
+  font-family: 'JetBrains Mono', monospace;
+}
+.live-text {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--accent);
+  word-break: break-all;
+  white-space: pre-wrap;
+  max-height: 80px;
+  overflow-y: auto;
+}
+
+/* ===== RESULT LAYER CARDS ===== */
+.result-layer {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-bottom: 8px;
+  overflow: hidden;
+  transition: all .3s ease;
+}
+.result-layer-head {
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  background: var(--bg-elevated);
+}
+.result-layer-head .meta {
+  margin-left: auto;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.result-layer-head .meta span { font-size: 11px; }
+.result-layer-head .ratio { color: var(--yellow); font-weight: 600; font-family: 'JetBrains Mono', monospace; }
+.result-layer-head .time { color: var(--blue); font-family: 'JetBrains Mono', monospace; }
+.result-layer-head .model-tag { color: var(--text-muted); font-size: 11px; }
+
+.result-layer-input {
+  padding: 6px 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-base);
+  border-bottom: 1px solid var(--border-subtle);
+  max-height: 60px;
+  overflow-y: auto;
+  word-break: break-all;
+  white-space: pre-wrap;
+  font-family: 'JetBrains Mono', monospace;
+}
+.result-layer-input .input-label {
+  color: var(--text-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.result-layer-body {
+  padding: 8px 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  word-break: break-all;
+  white-space: pre-wrap;
+  max-height: 100px;
+  overflow-y: auto;
+  line-height: 1.6;
+}
+
+.result-layer-subs {
+  padding: 6px 12px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border-subtle);
+  max-height: 60px;
+  overflow-y: auto;
+}
+.result-layer-subs .sub-item { display: inline-block; margin-right: 8px; }
+.result-layer-subs .sub-from { color: var(--red); text-decoration: line-through; }
+.result-layer-subs .sub-to { color: var(--accent); }
 
 /* Layer states */
-.layer-waiting{border-color:#1a1a24;opacity:.5}
-.layer-waiting .result-layer-head{background:#0a0a10}
-.layer-processing{border-color:#059669;box-shadow:0 0 8px rgba(6,182,105,.15);animation:processPulse 1.5s ease-in-out infinite}
-.layer-complete{border-color:#1a3a24;opacity:1}
-@keyframes processPulse{0%,100%{box-shadow:0 0 4px rgba(6,182,105,.1)}50%{box-shadow:0 0 12px rgba(6,182,105,.25)}}
+.layer-waiting { border-color: var(--border); opacity: .4; }
+.layer-processing {
+  border-color: var(--accent-dim);
+  box-shadow: 0 0 16px rgba(6,182,105,.12);
+  animation: processPulse 2s ease-in-out infinite;
+  opacity: 1;
+}
+.layer-complete { border-color: var(--accent-bg); opacity: 1; }
+.layer-error { border-color: #7f1d1d !important; }
+@keyframes processPulse {
+  0%,100% { box-shadow: 0 0 8px rgba(6,182,105,.08); }
+  50% { box-shadow: 0 0 20px rgba(6,182,105,.2); }
+}
 
 /* Waveform */
-.waveform-container{height:32px;background:#090910;border-top:1px solid #111118;position:relative;overflow:hidden}
-.waveform-container canvas{width:100%;height:100%}
+.waveform-container {
+  height: 36px;
+  background: var(--bg-base);
+  border-top: 1px solid var(--border-subtle);
+  position: relative;
+  overflow: hidden;
+}
+.waveform-container canvas { width: 100%; height: 100%; }
 
-/* Processing info row */
-.processing-info{padding:3px 6px;font-size:8px;color:#555;background:#090910;display:flex;gap:8px;align-items:center;border-top:1px solid #111118}
-.processing-info .pi-val{color:#6ee7b7}
+/* Processing info */
+.processing-info {
+  padding: 6px 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-base);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  border-top: 1px solid var(--border-subtle);
+}
+.processing-info .pi-val { color: var(--accent); }
 
-/* Processing status bar */
-.process-status{background:#0b0b14;border:1px solid #1a1a24;border-radius:3px;margin-bottom:6px;overflow:hidden}
-.process-status-bar{display:flex;align-items:center;padding:4px 8px;gap:6px;font-size:9px}
-.process-status-bar .ps-label{color:#6ee7b7;font-weight:600;text-transform:uppercase;font-size:8px;letter-spacing:.5px}
-.process-status-bar .ps-detail{color:#888;flex:1}
-.process-status-bar .ps-elapsed{color:#fbbf24;font-size:8px;font-variant-numeric:tabular-nums}
-.progress-track{height:2px;background:#111118}
-.progress-fill{height:100%;background:linear-gradient(90deg,#059669,#6ee7b7);transition:width .3s;width:0}
+/* Error/warning banners */
+.layer-error-banner {
+  background: var(--red-bg);
+  border: 1px solid #7f1d1d;
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  margin: 8px 12px;
+  font-size: 12px;
+  color: #fca5a5;
+  font-weight: 500;
+}
+.layer-warn-banner {
+  background: var(--yellow-bg);
+  border: 1px solid #78350f;
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  margin: 8px 12px;
+  font-size: 12px;
+  color: var(--yellow);
+}
 
-/* Live text box */
-.live-text{background:#0a0a10;border:1px solid #1a1a24;border-radius:3px;padding:4px 6px;margin-top:4px;font-size:9px;color:#6ee7b7;word-break:break-all;white-space:pre-wrap;max-height:60px;overflow-y:auto;transition:all .3s}
-.live-text-label{font-size:8px;color:#444;text-transform:uppercase;margin-bottom:2px;display:flex;align-items:center;gap:4px}
-.live-text-label .char-count{color:#fbbf24;font-variant-numeric:tabular-nums}
+/* ===== ARROW BETWEEN LAYERS ===== */
+.arrow {
+  text-align: center;
+  color: var(--border);
+  font-size: 14px;
+  line-height: 18px;
+  padding: 2px 0;
+}
 
-/* Stats row */
-.stats-row{display:flex;gap:8px;padding:4px 0;border-top:1px solid #1a1a24;margin-top:4px}
-.stat{display:flex;flex-direction:column}
-.stat-label{font-size:8px;color:#555;text-transform:uppercase}
-.stat-val{font-size:11px;font-weight:700}
-.stat-val.green{color:#4ade80}
-.stat-val.yellow{color:#fbbf24}
-.stat-val.blue{color:#818cf8}
-.stat-val.red{color:#f87171}
-.stat-val.purple{color:#a78bfa}
+/* ===== COMPRESSION GAUGE ===== */
+.comp-gauge {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  padding: 12px 16px;
+  margin-top: 12px;
+  display: none;
+  align-items: center;
+  gap: 16px;
+}
+.comp-donut { position: relative; width: 64px; height: 64px; flex-shrink: 0; }
+.comp-donut svg { width: 64px; height: 64px; transform: rotate(-90deg); }
+.comp-donut .donut-bg { fill: none; stroke: var(--bg-base); stroke-width: 5; }
+.comp-donut .donut-fill {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 5;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 1.5s ease-out;
+}
+.comp-donut .donut-label {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%,-50%);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+  font-family: 'JetBrains Mono', monospace;
+}
+.comp-gauge-content { flex: 1; }
+.comp-gauge-val {
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 18px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.comp-gauge-sub { color: var(--text-muted); font-size: 11px; margin-top: 2px; }
+.comp-gauge-bar {
+  height: 6px;
+  background: var(--bg-base);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+.comp-gauge-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 1.2s ease-out;
+  background: linear-gradient(90deg, var(--yellow), var(--accent));
+}
 
-/* Compression gauge */
-.comp-gauge{margin-top:6px;border:1px solid #1a1a24;border-radius:3px;background:#0b0b12;padding:4px 6px;overflow:hidden}
-.comp-gauge-header{display:flex;align-items:center;gap:6px;font-size:9px;margin-bottom:3px}
-.comp-gauge-val{color:#4ade80;font-weight:700;font-size:14px;font-variant-numeric:tabular-nums}
-.comp-gauge-sub{color:#555;font-size:8px}
-.comp-gauge-bar{height:6px;background:#111118;border-radius:3px;overflow:hidden}
-.comp-gauge-fill{height:100%;border-radius:3px;transition:width 1s ease-out;background:linear-gradient(90deg,#fbbf24,#4ade80)}
+/* ===== STATS ROW ===== */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-top: 12px;
+  display: none;
+}
+.stat {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  text-align: center;
+}
+.stat-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin-bottom: 4px;
+}
+.stat-val {
+  font-size: 16px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+}
+.stat-val.green { color: var(--accent); }
+.stat-val.yellow { color: var(--yellow); }
+.stat-val.blue { color: var(--blue); }
+.stat-val.red { color: var(--red); }
+.stat-val.purple { color: var(--purple); }
 
-/* Package viewer */
-.pkg-box{background:#0b0b12;border:1px solid #1a1a24;border-radius:3px;padding:6px;font-size:10px;word-break:break-all;white-space:pre-wrap;max-height:200px;overflow-y:auto;color:#94a3b8;margin-top:4px}
-.pkg-box .key{color:#6ee7b7}.pkg-box .val{color:#fbbf24}.pkg-box .type{color:#a78bfa}
+/* ===== DECODED SECTION ===== */
+.decoded-section { margin-top: 12px; display: none; }
+.decoded-box {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 120px;
+  overflow-y: auto;
+}
 
-/* Tabs */
-.tabs{display:flex;gap:0;margin-bottom:4px}
-.tab{padding:3px 8px;border:1px solid #1a1a24;background:#0b0b12;color:#666;font-size:9px;cursor:pointer;border-right:none;font-family:inherit}
-.tab:first-child{border-radius:3px 0 0 3px}
-.tab:last-child{border-radius:0 3px 3px 0;border-right:1px solid #1a1a24}
-.tab.active{background:#151520;color:#6ee7b7;border-color:#1a3a24}
+/* ===== PIPELINE FLOW ===== */
+.pipeline-flow {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  display: none;
+  overflow-x: auto;
+}
+.pipeline-flow-title {
+  color: var(--text-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+.pipeline-flow-inner { display: flex; align-items: center; gap: 0; min-width: 0; }
+.pf-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  min-width: 60px;
+  transition: all .3s ease;
+  flex-shrink: 0;
+  background: var(--bg-elevated);
+}
+.pf-node.active {
+  box-shadow: 0 0 14px rgba(6,182,105,.2);
+  animation: pfPulse 1.5s ease-in-out infinite;
+}
+.pf-node.done { opacity: 1; }
+.pf-node.waiting { opacity: .3; }
+.pf-node .pf-type { font-weight: 700; text-transform: uppercase; font-size: 8px; letter-spacing: .5px; }
+.pf-node .pf-chars { font-size: 12px; font-weight: 700; color: var(--yellow); margin-top: 3px; font-family: 'JetBrains Mono', monospace; }
+.pf-node .pf-label { color: var(--text-muted); font-size: 9px; margin-top: 2px; }
+.pf-arrow { color: var(--border); font-size: 16px; padding: 0 4px; flex-shrink: 0; transition: color .3s; }
+.pf-arrow.active { color: var(--accent); }
+.pf-arrow.done { color: var(--accent); }
+@keyframes pfPulse { 0%,100% { box-shadow: 0 0 6px rgba(6,182,105,.1); } 50% { box-shadow: 0 0 18px rgba(6,182,105,.3); } }
 
-/* Reference section */
-.ref-section{border:1px solid #1a1a24;border-radius:3px;margin-bottom:6px;background:#0b0b12}
-.ref-header{padding:4px 6px;display:flex;align-items:center;gap:4px;font-size:9px;color:#a78bfa;border-bottom:1px solid #1a1a24;cursor:pointer}
-.ref-header:hover{background:#0e0e16}
-.ref-body{padding:4px 6px;font-size:9px;color:#888;max-height:200px;overflow-y:auto}
-.ref-body.collapsed{display:none}
-.ref-stat{display:inline-block;margin-right:8px}
-.ref-stat .rv{color:#a78bfa;font-weight:700}
+/* ===== TABS ===== */
+.tabs { display: flex; gap: 0; margin-bottom: 10px; }
+.tab {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  border-right: none;
+  transition: all var(--transition);
+}
+.tab:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.tab:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; border-right: 1px solid var(--border); }
+.tab.active { background: var(--accent-bg); color: var(--accent); border-color: var(--accent-dim); }
+.tab:hover:not(.active) { background: var(--bg-hover); color: var(--text-secondary); }
 
-/* Submit section */
-.submit-section{border-top:1px solid #1a1a24;padding-top:6px;margin-top:6px}
-.pill-row{display:flex;gap:3px;margin-bottom:4px}
-.pill{padding:2px 8px;border:1px solid #1a1a24;border-radius:10px;font-size:9px;cursor:pointer;transition:all .12s}
-.pill:hover{border-color:#2a2a3a}
-.pill.active{border-color:#6ee7b7;color:#6ee7b7;background:#0d1a14}
-.pill.claude.active{border-color:#d4a574;color:#d4a574;background:#1a140d}
-.pill.gpt.active{border-color:#74d4a5;color:#74d4a5;background:#0d1a14}
-.pill.grok.active{border-color:#a574d4;color:#a574d4;background:#140d1a}
+/* ===== PACKAGE BOX ===== */
+.pkg-box {
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  word-break: break-all;
+  white-space: pre-wrap;
+  max-height: 300px;
+  overflow-y: auto;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.pkg-box .key { color: var(--accent); }
+.pkg-box .val { color: var(--yellow); }
+.pkg-box .type { color: var(--purple); }
 
-/* API key */
-.api-row{display:flex;gap:4px;align-items:center;margin-bottom:4px}
-.api-row label{width:40px;font-size:9px;color:#555;text-align:right}
-.api-row input{flex:1}
+/* ===== EXPORT BAR ===== */
+.export-bar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
 
-/* Response */
-.response-box{flex:1;background:#0b0b12;border:1px solid #1a1a24;border-radius:3px;padding:8px;font-size:11px;line-height:1.5;color:#c0c4c8;overflow-y:auto;white-space:pre-wrap;word-wrap:break-word}
-.response-box.empty{color:#444;display:flex;align-items:center;justify-content:center;font-style:italic;font-size:10px}
+/* ===== SUBMIT SECTION ===== */
+.submit-section {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  margin-top: 12px;
+  display: none;
+}
+.pill-row { display: flex; gap: 4px; margin-bottom: 8px; }
+.pill {
+  padding: 4px 14px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+  color: var(--text-muted);
+}
+.pill:hover { border-color: #3a3a4a; color: var(--text-secondary); }
+.pill.active { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+.pill.claude.active { border-color: #d4a574; color: #d4a574; background: #1a140d; }
+.pill.gpt.active { border-color: #74d4a5; color: #74d4a5; background: #0d1a14; }
+.pill.grok.active { border-color: #a574d4; color: #a574d4; background: #140d1a; }
 
-/* Arrow */
-.arrow{text-align:center;color:#2a2a3a;font-size:10px;line-height:12px;padding:1px 0}
+.api-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.api-row label {
+  width: 36px;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: right;
+  font-weight: 500;
+}
+.api-row input { flex: 1; }
+.submit-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.submit-controls select { flex: 1; }
 
-/* Decoded */
-.decoded-box{background:#0b0b12;border:1px solid #1a1a24;border-radius:3px;padding:6px;font-size:10px;color:#94a3b8;white-space:pre-wrap;word-wrap:break-word;margin-top:4px;max-height:100px;overflow-y:auto}
+/* ===== RESPONSE BOX ===== */
+.response-box {
+  flex: 1;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-primary);
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+.response-box.empty {
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-style: italic;
+  font-size: 12px;
+  text-align: center;
+  padding: 40px;
+}
 
-/* Spinner */
-.spinner{display:inline-block;width:10px;height:10px;border:1.5px solid #333;border-top-color:#6ee7b7;border-radius:50%;animation:spin .5s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
+/* ===== CODEBOOK PANEL (BOTTOM) ===== */
+.codebook-bar {
+  border-top: 1px solid var(--border);
+  background: var(--bg-surface);
+  flex-shrink: 0;
+  overflow: hidden;
+  transition: height .3s ease;
+}
+.codebook-bar.collapsed { height: 36px; }
+.codebook-bar.expanded { height: 260px; }
+.codebook-bar-head {
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--purple);
+  cursor: pointer;
+  height: 36px;
+  flex-shrink: 0;
+  transition: background var(--transition);
+  background: var(--bg-elevated);
+}
+.codebook-bar-head:hover { background: var(--bg-hover); }
+.codebook-bar-head .cb-toggle {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.cb-stats {
+  display: flex;
+  gap: 14px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+.cb-stats .cv { font-weight: 600; font-family: 'JetBrains Mono', monospace; }
+.cb-stats .cv.vocab { color: var(--accent); }
+.cb-stats .cv.phrase { color: var(--purple); }
+.cb-stats .cv.learned { color: var(--blue); }
 
-/* Toast */
-.toast{position:fixed;bottom:30px;right:10px;background:#1e293b;border:1px solid #334155;color:#e2e8f0;padding:4px 10px;border-radius:3px;font-size:10px;opacity:0;transition:opacity .3s;z-index:100}
-.toast.show{opacity:1}
+.codebook-bar-body { display: flex; height: calc(100% - 36px); overflow: hidden; }
+.cb-controls {
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 220px;
+  border-right: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.cb-scroll { flex: 1; overflow-y: auto; padding: 6px 12px; }
 
-/* Scrollbar */
-::-webkit-scrollbar{width:4px}
-::-webkit-scrollbar-track{background:#08080c}
-::-webkit-scrollbar-thumb{background:#1a1a24;border-radius:2px}
-::-webkit-scrollbar-thumb:hover{background:#2a2a3a}
+/* Codebook table */
+.cb-table { width: 100%; border-collapse: collapse; }
+.cb-table th {
+  text-align: left;
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--bg-surface);
+  z-index: 1;
+  font-weight: 600;
+}
+.cb-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 11px;
+}
+.cb-table tr { transition: background .15s ease; }
+.cb-table tr:hover { background: var(--bg-hover); }
+.cb-table tr.highlight { background: #1a2830; animation: fadeHighlight 3s ease-out; }
+@keyframes fadeHighlight { from { background: #1a3830; } to { background: transparent; } }
+.cb-word { color: var(--text-primary); }
+.cb-code { color: var(--yellow); font-weight: 600; font-family: 'JetBrains Mono', monospace; }
+.cb-type-tag {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+.cb-type-tag.vocab { background: var(--accent-bg); color: var(--accent); }
+.cb-type-tag.phrase { background: var(--purple-bg); color: var(--purple); }
+.cb-type-tag.learned { background: var(--blue-bg); color: var(--blue); }
+.cb-freq { color: var(--text-muted); font-size: 10px; text-align: right; font-family: 'JetBrains Mono', monospace; }
+.cb-delete-btn {
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 4px;
+  border: none;
+  background: none;
+  font-family: inherit;
+  transition: color .15s;
+}
+.cb-delete-btn:hover { color: var(--red); }
 
-/* Train results */
-.train-result{font-size:9px;padding:3px 4px;border-bottom:1px solid #1a1a24}
-.train-result .tr-comp{color:#4ade80}.train-result .tr-fid{color:#fbbf24}
-.train-result .tr-subs{color:#818cf8}
-.train-result .tr-text{color:#666;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block}
+.cb-table td.editing { padding: 0; }
+.cb-table td.editing input {
+  width: 100%;
+  background: var(--bg-base);
+  border: 1px solid var(--accent);
+  color: var(--text-primary);
+  padding: 3px 6px;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  outline: none;
+  border-radius: 0;
+}
+.cb-table tr.cb-edited { background: var(--blue-bg) !important; }
+.cb-table tr.cb-new { background: var(--accent-bg) !important; }
 
-/* Detail panels */
-.detail-toggle{font-size:8px;color:#555;cursor:pointer;padding:1px 4px;border:1px solid #1a1a24;border-radius:2px;background:#0b0b12;margin-left:auto}
-.detail-toggle:hover{color:#6ee7b7;border-color:#1a3a24}
-.detail-panel{display:none;border-top:1px solid #1a1a24;background:#090910;padding:4px 6px;font-size:9px}
-.detail-panel.open{display:block}
-.detail-section{margin-bottom:4px}
-.detail-section-head{color:#6ee7b7;font-size:8px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px;border-bottom:1px solid #111118;padding-bottom:1px}
-.detail-kv{display:flex;gap:4px;padding:1px 0}
-.detail-k{color:#555;min-width:90px;font-size:8px}
-.detail-v{color:#94a3b8;font-size:9px;word-break:break-all}
-.detail-v.green{color:#4ade80}.detail-v.yellow{color:#fbbf24}.detail-v.red{color:#f87171}.detail-v.purple{color:#a78bfa}.detail-v.blue{color:#60a5fa}
-.detail-sub-grid{display:grid;grid-template-columns:auto auto auto;gap:1px 6px;font-size:8px;max-height:80px;overflow-y:auto}
-.detail-sub-grid .from{color:#f87171;text-decoration:line-through}.detail-sub-grid .to{color:#4ade80}.detail-sub-grid .saved{color:#fbbf24}
-.detail-prompt{background:#080810;border:1px solid #1a1a24;padding:3px 4px;font-size:8px;color:#666;max-height:60px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;border-radius:2px;margin-top:2px}
-.detail-raw{background:#080810;border:1px solid #1a1a24;padding:3px 4px;font-size:8px;color:#818cf8;max-height:50px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;border-radius:2px;margin-top:2px}
-.word-tag{display:inline-block;padding:0 3px;margin:1px;border-radius:2px;font-size:8px}
-.word-tag.kept{background:#0d2818;color:#4ade80}.word-tag.lost{background:#281010;color:#f87171}.word-tag.added{background:#101828;color:#60a5fa}
-.sym-badge{display:inline-flex;align-items:center;gap:2px;padding:1px 4px;border:1px solid #1a1a24;border-radius:2px;font-size:8px;margin:1px}
-.sym-badge .sym{color:#fbbf24;font-weight:700}.sym-badge .meaning{color:#666}
+.cb-add-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+.cb-add-row input, .cb-add-row select { font-size: 11px; padding: 4px 8px; }
+.cb-add-row input { flex: 1; }
 
-/* Pipeline summary */
-.pipeline-summary{border:1px solid #1a1a24;border-radius:3px;background:#0b0b12;padding:6px;margin-top:6px}
-.pipeline-step{display:flex;align-items:center;gap:4px;padding:2px 0;font-size:9px}
-.pipeline-step .pipe-arrow{color:#2a2a3a}
-.pipeline-step .pipe-chars{color:#fbbf24;font-size:8px;min-width:40px}
-.pipeline-step .pipe-type{font-size:8px;padding:1px 4px;border-radius:2px;font-weight:600}
-.pipeline-step .pipe-delta{font-size:8px}
-.pipeline-step .pipe-delta.neg{color:#4ade80}.pipeline-step .pipe-delta.zero{color:#555}
+/* ===== DETAIL PANELS ===== */
+.detail-toggle {
+  font-size: 10px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-base);
+  transition: all var(--transition);
+  font-family: inherit;
+}
+.detail-toggle:hover { color: var(--accent); border-color: var(--accent-dim); }
+.detail-panel { display: none; border-top: 1px solid var(--border-subtle); background: var(--bg-base); padding: 10px 12px; font-size: 11px; }
+.detail-panel.open { display: block; }
+.detail-section { margin-bottom: 8px; }
+.detail-section-head {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 3px;
+}
+.detail-kv { display: flex; gap: 8px; padding: 2px 0; }
+.detail-k { color: var(--text-muted); min-width: 100px; font-size: 10px; }
+.detail-v { color: var(--text-secondary); font-size: 11px; word-break: break-all; }
+.detail-v.green { color: var(--accent); }
+.detail-v.yellow { color: var(--yellow); }
+.detail-v.red { color: var(--red); }
+.detail-v.purple { color: var(--purple); }
+.detail-v.blue { color: var(--blue); }
 
-/* ========== NEW: Dark mode polish - gradient headers ========== */
-.col-head{background:linear-gradient(135deg,#0e0e14 0%,#111118 100%)}
-.codebook-bar-head{background:linear-gradient(135deg,#0e0e14 0%,#12101e 100%)}
-.result-layer-head{background:linear-gradient(135deg,#0e0e14 0%,#101018 100%)}
+.detail-sub-grid {
+  display: grid;
+  grid-template-columns: auto auto auto;
+  gap: 2px 8px;
+  font-size: 10px;
+  max-height: 100px;
+  overflow-y: auto;
+}
+.detail-sub-grid .from { color: var(--red); text-decoration: line-through; }
+.detail-sub-grid .to { color: var(--accent); }
+.detail-sub-grid .saved { color: var(--yellow); }
 
-/* Smooth transitions on interactive elements */
-.btn,.tab,.pill,.detail-toggle,.ref-header,.cb-table tr,.result-layer,.codebook-bar{transition:all .2s ease}
-.result-layer:hover{border-color:#2a2a3a}
-.cb-table tr{transition:background .15s ease}
+.detail-prompt {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  padding: 6px 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+  max-height: 80px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  border-radius: 4px;
+  margin-top: 4px;
+}
+.detail-raw {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  padding: 6px 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--blue);
+  max-height: 60px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  border-radius: 4px;
+  margin-top: 4px;
+}
 
-/* Tooltip styles */
-[data-tooltip]{position:relative;cursor:help}
-[data-tooltip]:hover::after{content:attr(data-tooltip);position:absolute;bottom:calc(100% + 4px);left:50%;transform:translateX(-50%);background:#1e293b;border:1px solid #334155;color:#e2e8f0;padding:3px 8px;border-radius:3px;font-size:8px;white-space:nowrap;z-index:200;pointer-events:none;animation:tooltipIn .15s ease}
-@keyframes tooltipIn{from{opacity:0;transform:translateX(-50%) translateY(3px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+.word-tag { display: inline-block; padding: 1px 5px; margin: 1px; border-radius: 3px; font-size: 10px; }
+.word-tag.kept { background: var(--accent-bg); color: var(--accent); }
+.word-tag.lost { background: var(--red-bg); color: var(--red); }
+.word-tag.added { background: var(--blue-bg); color: var(--blue); }
 
-/* ========== NEW: Compression donut chart ========== */
-.comp-donut{position:relative;width:60px;height:60px;flex-shrink:0}
-.comp-donut svg{width:60px;height:60px;transform:rotate(-90deg)}
-.comp-donut .donut-bg{fill:none;stroke:#111118;stroke-width:5}
-.comp-donut .donut-fill{fill:none;stroke:#4ade80;stroke-width:5;stroke-linecap:round;transition:stroke-dashoffset 1.5s ease-out}
-.comp-donut .donut-label{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:11px;font-weight:700;color:#4ade80;font-variant-numeric:tabular-nums}
-.comp-gauge{display:flex;align-items:center;gap:10px}
-.comp-gauge-content{flex:1}
+.sym-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 10px;
+  margin: 2px;
+}
+.sym-badge .sym { color: var(--yellow); font-weight: 700; }
+.sym-badge .meaning { color: var(--text-muted); }
 
-/* ========== NEW: Pipeline flow visualization ========== */
-.pipeline-flow{border:1px solid #1a1a24;border-radius:3px;background:#0b0b12;padding:8px 10px;margin-bottom:6px;display:none;overflow-x:auto}
-.pipeline-flow-inner{display:flex;align-items:center;gap:0;min-width:0}
-.pf-node{display:flex;flex-direction:column;align-items:center;padding:4px 8px;border:1px solid #1a1a24;border-radius:4px;font-size:8px;min-width:56px;position:relative;transition:all .3s ease;flex-shrink:0}
-.pf-node.active{box-shadow:0 0 10px rgba(6,182,105,.2);animation:pfPulse 1.5s ease-in-out infinite}
-.pf-node.done{opacity:1}.pf-node.waiting{opacity:.35}
-.pf-node .pf-type{font-weight:700;text-transform:uppercase;font-size:7px;letter-spacing:.5px}
-.pf-node .pf-chars{font-size:10px;font-weight:700;color:#fbbf24;margin-top:2px;font-variant-numeric:tabular-nums}
-.pf-node .pf-label{color:#555;font-size:7px;margin-top:1px}
-.pf-arrow{color:#2a2a3a;font-size:14px;padding:0 2px;flex-shrink:0;transition:color .3s}
-.pf-arrow.active{color:#6ee7b7}
-.pf-arrow.done{color:#4ade80}
-@keyframes pfPulse{0%,100%{box-shadow:0 0 6px rgba(6,182,105,.1)}50%{box-shadow:0 0 14px rgba(6,182,105,.3)}}
+/* Diff view */
+.diff-view {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  line-height: 1.6;
+  padding: 8px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  max-height: 120px;
+  overflow-y: auto;
+  margin-top: 4px;
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+.diff-del { background: #3c1111; color: #fca5a5; text-decoration: line-through; padding: 0 2px; border-radius: 2px; }
+.diff-add { background: #0d3818; color: #86efac; padding: 0 2px; border-radius: 2px; }
+.diff-same { color: var(--text-muted); }
 
-/* ========== NEW: Diff view in detail panels ========== */
-.diff-view{font-size:9px;line-height:1.6;padding:4px 6px;background:#080810;border:1px solid #1a1a24;border-radius:2px;max-height:120px;overflow-y:auto;margin-top:3px;word-break:break-all;white-space:pre-wrap}
-.diff-del{background:#3c1111;color:#fca5a5;text-decoration:line-through;padding:0 1px;border-radius:1px}
-.diff-add{background:#0d3818;color:#86efac;padding:0 1px;border-radius:1px}
-.diff-same{color:#888}
-.sub-pill{display:inline-flex;align-items:center;gap:3px;padding:1px 6px;margin:2px;border-radius:10px;font-size:8px;border:1px solid #1a1a24;background:#0e0e16;transition:all .15s}
-.sub-pill:hover{border-color:#2a2a3a;background:#141420}
-.sub-pill .sp-from{color:#f87171;text-decoration:line-through}
-.sub-pill .sp-arrow{color:#555}
-.sub-pill .sp-to{color:#4ade80;font-weight:600}
+.sub-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  margin: 2px;
+  border-radius: 20px;
+  font-size: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  transition: all .15s;
+}
+.sub-pill:hover { border-color: #3a3a4a; background: var(--bg-hover); }
+.sub-pill .sp-from { color: var(--red); text-decoration: line-through; }
+.sub-pill .sp-arrow { color: var(--text-muted); }
+.sub-pill .sp-to { color: var(--accent); font-weight: 600; }
 
-/* ========== NEW: Codebook editing ========== */
-.cb-table td.editing{padding:0}
-.cb-table td.editing input{width:100%;background:#0e0e18;border:1px solid #6ee7b7;color:#d0d4d8;padding:2px 4px;font-size:9px;font-family:inherit;outline:none;border-radius:0}
-.cb-table tr.cb-edited{background:#1a2030 !important}
-.cb-table tr.cb-new{background:#0d2818 !important}
-.cb-delete-btn{color:#555;cursor:pointer;font-size:10px;padding:0 3px;border:none;background:none;font-family:inherit;transition:color .15s}
-.cb-delete-btn:hover{color:#f87171}
-.cb-add-row{display:flex;gap:4px;align-items:center;margin-bottom:4px}
-.cb-add-row input,.cb-add-row select{font-size:9px;padding:2px 4px}
-.cb-add-row input{flex:1}
+/* ===== PIPELINE SUMMARY ===== */
+.pipeline-summary {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  padding: 12px 16px;
+  margin-top: 12px;
+}
+.pipeline-step { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 11px; }
+.pipeline-step .pipe-arrow { color: var(--border); }
+.pipeline-step .pipe-chars { color: var(--yellow); font-size: 11px; min-width: 50px; font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+.pipeline-step .pipe-type { font-size: 9px; padding: 2px 6px; border-radius: 4px; font-weight: 600; }
+.pipeline-step .pipe-delta { font-size: 10px; font-family: 'JetBrains Mono', monospace; }
+.pipeline-step .pipe-delta.neg { color: var(--accent); }
+.pipeline-step .pipe-delta.zero { color: var(--text-muted); }
 
-/* ========== NEW: Keyboard shortcuts help ========== */
-.kbd-help{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:#1e293b;border:1px solid #334155;border-radius:6px;padding:10px 16px;z-index:300;display:none;min-width:260px;box-shadow:0 8px 24px rgba(0,0,0,.4)}
-.kbd-help.show{display:block;animation:kbdIn .2s ease}
-@keyframes kbdIn{from{opacity:0;transform:translateX(-50%) translateY(8px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
-.kbd-help-title{font-size:10px;color:#6ee7b7;font-weight:700;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
-.kbd-row{display:flex;justify-content:space-between;padding:2px 0;font-size:9px}
-.kbd-row .kbd-key{background:#0e0e14;border:1px solid #334155;padding:1px 5px;border-radius:2px;color:#e2e8f0;font-size:8px;font-family:inherit}
-.kbd-row .kbd-desc{color:#94a3b8}
-.kbd-help-btn{position:fixed;bottom:10px;right:10px;width:22px;height:22px;border-radius:50%;background:#1e293b;border:1px solid #334155;color:#94a3b8;font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:200;transition:all .15s;font-family:inherit}
-.kbd-help-btn:hover{background:#334155;color:#e2e8f0}
+/* ===== TRAIN RESULTS ===== */
+.train-result {
+  font-size: 11px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.train-result .tr-comp { color: var(--accent); }
+.train-result .tr-fid { color: var(--yellow); }
+.train-result .tr-subs { color: var(--blue); }
+.train-result .tr-text {
+  color: var(--text-muted);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  vertical-align: bottom;
+}
 
-/* ========== NEW: Export/Import buttons ========== */
-.export-bar{display:flex;gap:4px;align-items:center;margin-top:4px;flex-wrap:wrap}
+/* ===== SPINNER ===== */
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .6s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ===== TOAST ===== */
+.toast {
+  position: fixed;
+  bottom: 40px;
+  right: 16px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity .3s, transform .3s;
+  z-index: 1000;
+  box-shadow: var(--shadow-lg);
+  transform: translateY(8px);
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+
+/* ===== KEYBOARD HELP ===== */
+.kbd-help {
+  position: fixed;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px 20px;
+  z-index: 300;
+  display: none;
+  min-width: 280px;
+  box-shadow: var(--shadow-lg);
+}
+.kbd-help.show { display: block; animation: kbdIn .2s ease; }
+@keyframes kbdIn { from { opacity: 0; transform: translateX(-50%) translateY(8px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+.kbd-help-title { font-size: 12px; color: var(--accent); font-weight: 700; margin-bottom: 8px; text-transform: uppercase; letter-spacing: .5px; }
+.kbd-row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 11px; }
+.kbd-row .kbd-key {
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.kbd-row .kbd-desc { color: var(--text-secondary); }
+.kbd-help-btn {
+  position: fixed;
+  bottom: 12px;
+  right: 12px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  transition: all .15s;
+  font-family: 'JetBrains Mono', monospace;
+}
+.kbd-help-btn:hover { background: var(--bg-hover); color: var(--text-primary); border-color: var(--accent-dim); }
+
+/* ===== TOOLTIP ===== */
+[data-tooltip] { position: relative; cursor: help; }
+[data-tooltip]:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  white-space: nowrap;
+  z-index: 200;
+  pointer-events: none;
+  animation: tooltipIn .15s ease;
+  box-shadow: var(--shadow-md);
+}
+@keyframes tooltipIn { from { opacity: 0; transform: translateX(-50%) translateY(3px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+
+/* ===== SCROLLBAR ===== */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #3a3a4a; }
+
+/* ===== EMPTY STATE ===== */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-muted);
+  flex: 1;
+}
+.empty-state .es-icon { font-size: 32px; margin-bottom: 12px; opacity: .4; }
+.empty-state .es-title { font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
+.empty-state .es-desc { font-size: 12px; max-width: 280px; line-height: 1.5; }
+.empty-state .es-steps { margin-top: 16px; text-align: left; }
+.empty-state .es-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.empty-state .es-step .step-num {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent-bg);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ===== RESP STATS ===== */
+.resp-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 10px;
+  display: none;
+}
+.resp-stats .stat { padding: 6px 10px; }
 </style>
 </head>
 <body>
 
-<div class="topbar">
-  <span class="logo">PREFRONTAL COMPRESSOR</span>
+<!-- NAVBAR -->
+<div class="navbar">
+  <div class="logo">
+    <div class="logo-icon">PC</div>
+    <span class="logo-text">Prefrontal Compressor</span>
+    <span class="logo-ver">v4</span>
+  </div>
   <span class="sep">|</span>
-  <span class="tag">v3.1</span>
-  <span class="sep">|</span>
-  <span class="tag" id="modelCount">-- models</span>
-  <span class="sep">|</span>
-  <span class="tag" id="refInfo">ref: --</span>
-  <div class="right">
-    <span id="statusText">connecting...</span>
-    <span class="dot" id="statusDot"></span>
+  <div class="nav-info">
+    <span><span class="ni-label">Models: </span><span class="ni-val" id="modelCount">--</span></span>
+    <span><span class="ni-label">Ref: </span><span class="ni-val" id="refInfo">--</span></span>
+  </div>
+  <div class="nav-right">
+    <div class="status-pill">
+      <span id="statusText">connecting...</span>
+      <span class="status-dot" id="statusDot"></span>
+    </div>
   </div>
 </div>
 
-<div class="main">
-  <!-- COL 1: Input + Chain Config -->
-  <div class="col">
-    <div class="col-head">
-      Compression Chain
+<div class="app-layout">
+  <!-- LEFT PANEL: Input & Configuration -->
+  <div class="panel-left">
+    <div class="panel-header">
+      <h2>Compression Chain</h2>
       <span class="badge" id="layerBadge">0 layers</span>
     </div>
-    <div class="col-body">
-      <label class="field">Input</label>
-      <textarea id="inputText" placeholder="Enter text to compress..." rows="4"></textarea>
+    <div class="panel-body">
+      <!-- Input -->
+      <div class="form-group">
+        <label class="form-label">Input Text</label>
+        <textarea id="inputText" placeholder="Paste or type text to compress..." rows="5"></textarea>
+      </div>
 
-      <!-- Reference file selector -->
-      <div class="ref-section" style="margin-top:6px">
+      <!-- Reference File -->
+      <div class="ref-section">
         <div class="ref-header" onclick="toggleRef()">
-          Shared Reference File
-          <span style="margin-left:auto;font-size:8px;color:#555" id="refToggle">[expand]</span>
+          <span>&#128218;</span> Shared Reference File
+          <span class="toggle-icon" id="refToggle">&#9654;</span>
         </div>
-        <div class="ref-body collapsed" id="refBody">
-          <div class="row" style="margin-bottom:4px">
+        <div class="ref-body" id="refBody">
+          <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
             <select id="refSelect" style="flex:1" onchange="switchRef()"></select>
             <button class="btn sm" onclick="newRef()">New</button>
             <button class="btn sm train-btn" onclick="trainRef()">Train</button>
           </div>
-          <div id="refStats">
-            <span class="ref-stat">v<span class="rv" id="refVersion">--</span></span>
-            <span class="ref-stat">vocab: <span class="rv" id="refVocab">--</span></span>
-            <span class="ref-stat">phrases: <span class="rv" id="refPhrases">--</span></span>
-            <span class="ref-stat">learned: <span class="rv" id="refLearned">--</span></span>
-            <span class="ref-stat">fp: <span class="rv" id="refFP">--</span></span>
+          <div class="ref-stats" id="refStats">
+            <span class="ref-stat-item">v<span class="rv" id="refVersion">--</span></span>
+            <span class="ref-stat-item">vocab: <span class="rv" id="refVocab">--</span></span>
+            <span class="ref-stat-item">phrases: <span class="rv" id="refPhrases">--</span></span>
+            <span class="ref-stat-item">learned: <span class="rv" id="refLearned">--</span></span>
+            <span class="ref-stat-item">fp: <span class="rv" id="refFP">--</span></span>
           </div>
-          <div id="trainResults" style="margin-top:4px"></div>
+          <div id="trainResults" style="margin-top:8px"></div>
         </div>
       </div>
 
-      <!-- Layer configs -->
-      <div style="margin-top:6px">
-        <div class="row">
-          <label class="field" style="margin:0">Layers</label>
-          <button class="btn sm" onclick="addLayer('distill')">+ Distill</button>
+      <!-- Layer Config -->
+      <div class="form-group">
+        <label class="form-label">Pipeline Layers</label>
+        <div class="layer-actions">
+          <button class="btn sm" onclick="addLayer('discover')">+ Discover</button>
           <button class="btn sm" onclick="addLayer('reference')">+ Reference</button>
-          <button class="btn sm" onclick="addLayer('compact')">+ Compact</button>
-          <button class="btn sm" style="margin-left:4px" onclick="addDefaultChain()">D+R+C</button>
-          <button class="btn sm" style="margin-left:auto" onclick="clearLayers()">Clear</button>
+          <button class="btn sm" onclick="addLayer('structural')">+ Structural</button>
+          <button class="btn sm" style="border-color:var(--accent-dim);color:var(--accent)" onclick="addDefaultChain()">D+R+S</button>
+          <span class="sep"></span>
+          <button class="btn xs" onclick="clearLayers()">Clear</button>
         </div>
-        <div id="ollamaWarn" class="ollama-warn" style="display:none">
-          &#9888; Ollama not available -- LLM layers (distill/compact) need a model provider.<br>
+        <div id="ollamaWarn" class="ollama-warn">
+          &#9888; Ollama not available &mdash; LLM layers need a model provider.<br>
           Switch each layer to Claude, GPT, or Grok and enter your API key.<br>
-          <span style="font-size:8px;color:#888">Reference layer works without any LLM.</span>
+          <span style="font-size:11px;color:var(--text-muted);margin-top:4px;display:block">Reference layer works without any LLM.</span>
         </div>
         <div id="layerConfigs"></div>
       </div>
 
-      <div class="row" style="margin-top:6px">
-        <button class="btn primary" id="encodeBtn" onclick="runChainStream()">Compress</button>
-        <span style="font-size:8px;color:#444">Ctrl+Enter</span>
-        <button class="btn sm" style="margin-left:auto" onclick="clearAll()">Reset</button>
-      </div>
-
-      <!-- Results -->
-      <div id="resultsSection" style="display:none">
-        <!-- Processing status bar -->
-        <div class="process-status" id="processStatus" style="display:none;margin-top:8px">
-          <div class="process-status-bar">
-            <span class="ps-label" id="psLabel">Starting...</span>
-            <span class="ps-detail" id="psDetail"></span>
-            <span class="ps-elapsed" id="psElapsed">0.0s</span>
-          </div>
-          <div class="progress-track">
-            <div class="progress-fill" id="progressFill"></div>
-          </div>
-        </div>
-
-        <!-- Live text display -->
-        <div id="liveTextSection" style="display:none;margin-top:4px">
-          <div class="live-text-label">
-            Current text state
-            <span class="char-count" id="liveCharCount">--</span>
-          </div>
-          <div class="live-text" id="liveText"></div>
-        </div>
-
-        <div style="margin-top:8px">
-          <label class="field">Compression Results</label>
-          <div id="resultLayers"></div>
-        </div>
-
-        <!-- Compression gauge -->
-        <div class="comp-gauge" id="compGauge" style="display:none">
-          <div class="comp-donut" id="compDonut">
-            <svg viewBox="0 0 36 36">
-              <circle class="donut-bg" cx="18" cy="18" r="14"/>
-              <circle class="donut-fill" id="donutFill" cx="18" cy="18" r="14"
-                stroke-dasharray="87.96" stroke-dashoffset="87.96"/>
-            </svg>
-            <span class="donut-label" id="donutLabel">0%</span>
-          </div>
-          <div class="comp-gauge-content">
-            <div class="comp-gauge-header">
-              <span class="comp-gauge-val" id="gaugeVal">0%</span>
-              <span class="comp-gauge-sub" id="gaugeSub">-- chars saved</span>
-            </div>
-            <div class="comp-gauge-bar">
-              <div class="comp-gauge-fill" id="gaugeFill" style="width:0%"></div>
-            </div>
-          </div>
-        </div>
-
-        <div class="stats-row" id="statsRow" style="display:none">
-          <div class="stat" data-tooltip="Total reduction ratio across all layers">
-            <span class="stat-label">Compression</span>
-            <span class="stat-val green" id="statComp">--</span>
-          </div>
-          <div class="stat" data-tooltip="Original character count vs final encoded count">
-            <span class="stat-label">Chars</span>
-            <span class="stat-val yellow" id="statChars">--</span>
-          </div>
-          <div class="stat" data-tooltip="Total processing time for all layers">
-            <span class="stat-label">Time</span>
-            <span class="stat-val blue" id="statTime">--</span>
-          </div>
-          <div class="stat" data-tooltip="Key-word retention rate after decode roundtrip">
-            <span class="stat-label">Fidelity</span>
-            <span class="stat-val" id="statFidelity">--</span>
-          </div>
-        </div>
-
-        <div id="decodedSection" style="display:none;margin-top:6px">
-          <label class="field">Decoded (reconstruction check)</label>
-          <div class="decoded-box" id="decodedBox">--</div>
-        </div>
+      <!-- Compress -->
+      <div class="compress-row">
+        <button class="btn primary" id="encodeBtn" onclick="runChainStream()" style="flex:1">
+          Compress
+        </button>
+        <span class="shortcut">Ctrl+Enter</span>
+        <button class="btn sm" onclick="clearAll()">Reset</button>
       </div>
     </div>
   </div>
 
-  <!-- COL 2: Transmission Package + Submit -->
-  <div class="col">
-    <div class="col-head">
-      Transmission Package
+  <!-- CENTER PANEL: Results & Package -->
+  <div class="panel-center">
+    <div class="panel-header">
+      <h2>Results</h2>
       <span class="badge" id="pkgBadge">--</span>
+      <span style="flex:1"></span>
+      <div class="tabs" id="centerTabs" style="margin:0">
+        <div class="tab active" onclick="setCenterView('results')">Layers</div>
+        <div class="tab" onclick="setCenterView('package')">Package</div>
+        <div class="tab" onclick="setCenterView('decode')">Decode Map</div>
+      </div>
     </div>
-    <div class="col-body">
-      <!-- Pipeline flow visualization -->
-      <div class="pipeline-flow" id="pipelineFlow">
-        <div style="color:#555;font-size:8px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Pipeline Flow</div>
-        <div class="pipeline-flow-inner" id="pipelineFlowInner"></div>
+    <div class="panel-body" id="centerBody">
+      <!-- Results view (default) -->
+      <div id="resultsView">
+        <div id="resultsSection" style="display:none">
+          <!-- Processing status -->
+          <div class="process-status" id="processStatus" style="display:none">
+            <div class="process-status-bar">
+              <span class="ps-label" id="psLabel">Starting...</span>
+              <span class="ps-detail" id="psDetail"></span>
+              <span class="ps-elapsed" id="psElapsed">0.0s</span>
+            </div>
+            <div class="progress-track">
+              <div class="progress-fill" id="progressFill"></div>
+            </div>
+          </div>
+
+          <!-- Live text -->
+          <div class="live-text-section" id="liveTextSection">
+            <div class="live-text-label">
+              Current text state
+              <span class="char-count" id="liveCharCount">--</span>
+            </div>
+            <div class="live-text" id="liveText"></div>
+          </div>
+
+          <!-- Pipeline flow viz -->
+          <div class="pipeline-flow" id="pipelineFlow">
+            <div class="pipeline-flow-title">Pipeline Flow</div>
+            <div class="pipeline-flow-inner" id="pipelineFlowInner"></div>
+          </div>
+
+          <!-- Result layers -->
+          <div id="resultLayers"></div>
+
+          <!-- Compression gauge -->
+          <div class="comp-gauge" id="compGauge">
+            <div class="comp-donut" id="compDonut">
+              <svg viewBox="0 0 36 36">
+                <circle class="donut-bg" cx="18" cy="18" r="14"/>
+                <circle class="donut-fill" id="donutFill" cx="18" cy="18" r="14"
+                  stroke-dasharray="87.96" stroke-dashoffset="87.96"/>
+              </svg>
+              <span class="donut-label" id="donutLabel">0%</span>
+            </div>
+            <div class="comp-gauge-content">
+              <div>
+                <span class="comp-gauge-val" id="gaugeVal">0%</span>
+                <div class="comp-gauge-sub" id="gaugeSub">-- chars saved</div>
+              </div>
+              <div class="comp-gauge-bar">
+                <div class="comp-gauge-fill" id="gaugeFill" style="width:0%"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Stats -->
+          <div class="stats-row" id="statsRow">
+            <div class="stat" data-tooltip="Total compression ratio">
+              <div class="stat-label">Compression</div>
+              <div class="stat-val green" id="statComp">--</div>
+            </div>
+            <div class="stat" data-tooltip="Original vs final character count">
+              <div class="stat-label">Chars</div>
+              <div class="stat-val yellow" id="statChars">--</div>
+            </div>
+            <div class="stat" data-tooltip="Total processing time">
+              <div class="stat-label">Time</div>
+              <div class="stat-val blue" id="statTime">--</div>
+            </div>
+            <div class="stat" data-tooltip="Reconstruction fidelity">
+              <div class="stat-label">Fidelity</div>
+              <div class="stat-val" id="statFidelity">--</div>
+            </div>
+          </div>
+
+          <!-- Decoded -->
+          <div class="decoded-section" id="decodedSection">
+            <label class="form-label">Decoded (reconstruction check)</label>
+            <div class="decoded-box" id="decodedBox">--</div>
+          </div>
+        </div>
+
+        <!-- Empty state -->
+        <div class="empty-state" id="emptyState">
+          <div class="es-icon">&#x1F9E0;</div>
+          <div class="es-title">Ready to compress</div>
+          <div class="es-desc">Configure your compression pipeline and enter text to begin.</div>
+          <div class="es-steps">
+            <div class="es-step"><span class="step-num">1</span> Enter text in the left panel</div>
+            <div class="es-step"><span class="step-num">2</span> Configure layers (D+R+S recommended)</div>
+            <div class="es-step"><span class="step-num">3</span> Click Compress or press Ctrl+Enter</div>
+          </div>
+        </div>
       </div>
 
-      <div class="tabs" id="pkgTabs">
-        <div class="tab active" onclick="setPkgTab('visual')">Visual</div>
-        <div class="tab" onclick="setPkgTab('json')">JSON</div>
-        <div class="tab" onclick="setPkgTab('decode')">Decode Map</div>
+      <!-- Package view (hidden) -->
+      <div id="packageView" style="display:none">
+        <div id="pkgVisual" class="pkg-box" style="max-height:none">
+          <span style="color:var(--text-muted);font-style:italic">Run compression to see the transmission package...</span>
+        </div>
+        <!-- Export/Import -->
+        <div class="export-bar" id="exportBar">
+          <button class="btn sm" onclick="exportPackageJSON()" data-tooltip="Download package as JSON">Export Package</button>
+          <button class="btn sm" onclick="exportCodebookJSON()" data-tooltip="Download codebook as JSON">Export Codebook</button>
+          <button class="btn sm" onclick="document.getElementById('importFile').click()" data-tooltip="Import codebook from JSON">Import Codebook</button>
+          <input type="file" id="importFile" accept=".json" style="display:none" onchange="importCodebookFile(event)">
+        </div>
       </div>
 
-      <div id="pkgVisual" class="pkg-box" style="max-height:none;flex:1">
-        <span style="color:#444;font-style:italic">Run compression to see the transmission package...</span>
-      </div>
-      <div id="pkgJson" class="pkg-box" style="display:none;max-height:none;flex:1"></div>
-      <div id="pkgDecode" class="pkg-box" style="display:none;max-height:none;flex:1"></div>
-
-      <!-- Export/Import -->
-      <div class="export-bar" id="exportBar">
-        <button class="btn sm" onclick="exportPackageJSON()" data-tooltip="Download transmission package as JSON">Export Package</button>
-        <button class="btn sm" onclick="exportCodebookJSON()" data-tooltip="Download codebook as JSON">Export Codebook</button>
-        <button class="btn sm" onclick="document.getElementById('importFile').click()" data-tooltip="Import codebook entries from JSON file">Import Codebook</button>
-        <input type="file" id="importFile" accept=".json" style="display:none" onchange="importCodebookFile(event)">
+      <!-- Decode Map view (hidden) -->
+      <div id="decodeView" style="display:none">
+        <div id="pkgDecode" class="pkg-box" style="max-height:none"></div>
       </div>
 
-      <!-- Submit -->
-      <div class="submit-section" id="submitSection" style="display:none">
-        <label class="field">Submit to LLM</label>
+      <!-- JSON view (hidden) -->
+      <div id="jsonView" style="display:none">
+        <div id="pkgJson" class="pkg-box" style="max-height:none"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL: Submit & Response -->
+  <div class="panel-right">
+    <div class="panel-header">
+      <h2>Response</h2>
+      <span class="badge blue" id="respBadge" style="display:none">--</span>
+      <span class="badge purple" id="respModel" style="display:none"></span>
+    </div>
+    <div class="panel-body" style="display:flex;flex-direction:column;gap:12px">
+      <!-- Submit to LLM -->
+      <div id="submitSection" style="display:none">
+        <label class="form-label">Submit to LLM</label>
         <div class="pill-row">
           <span class="pill claude active" onclick="setTarget(this,'claude')">Claude</span>
           <span class="pill gpt" onclick="setTarget(this,'gpt')">GPT</span>
           <span class="pill grok" onclick="setTarget(this,'grok')">Grok</span>
         </div>
         <div class="api-row">
-          <label>Key:</label>
+          <label>Key</label>
           <input type="password" id="apiKey" placeholder="sk-... or xai-...">
         </div>
-        <div class="row">
+        <div class="submit-controls">
           <select id="modelSelect">
             <option value="claude-sonnet-4-20250514">claude-sonnet-4</option>
             <option value="claude-opus-4-20250514">claude-opus-4</option>
@@ -545,39 +1650,32 @@ select:focus,input:focus{outline:none;border-color:#6ee7b7}
             <option value="grok-3-mini">grok-3-mini</option>
           </select>
           <select id="submitMode">
-            <option value="package">Send package (encoded + decode map)</option>
-            <option value="decoded">Send decoded text</option>
-            <option value="original">Send original (baseline)</option>
+            <option value="package">Package (encoded + decode map)</option>
+            <option value="decoded">Decoded text</option>
+            <option value="original">Original (baseline)</option>
           </select>
           <button class="btn submit-btn" id="submitBtn" onclick="submitToLLM()">Send</button>
         </div>
       </div>
-    </div>
-  </div>
 
-  <!-- COL 3: Response -->
-  <div class="col">
-    <div class="col-head">
-      Response
-      <span class="badge" id="respBadge">--</span>
-      <span class="badge" id="respModel" style="display:none"></span>
-    </div>
-    <div class="col-body" style="display:flex;flex-direction:column">
+      <!-- Response -->
       <div class="response-box empty" id="responseBox">
-        Compress a prompt and submit to see the LLM response here.
+        Compress text and submit to an LLM to see the response here
       </div>
-      <div class="stats-row" id="respStats" style="display:none">
+
+      <!-- Response stats -->
+      <div class="resp-stats" id="respStats">
         <div class="stat">
-          <span class="stat-label">Tokens</span>
-          <span class="stat-val blue" id="respTokens">--</span>
+          <div class="stat-label">Tokens</div>
+          <div class="stat-val blue" id="respTokens">--</div>
         </div>
         <div class="stat">
-          <span class="stat-label">Latency</span>
-          <span class="stat-val yellow" id="respLatency">--</span>
+          <div class="stat-label">Latency</div>
+          <div class="stat-val yellow" id="respLatency">--</div>
         </div>
         <div class="stat">
-          <span class="stat-label">Mode</span>
-          <span class="stat-val green" id="respMode">--</span>
+          <div class="stat-label">Mode</div>
+          <div class="stat-val green" id="respMode">--</div>
         </div>
       </div>
     </div>
@@ -587,39 +1685,38 @@ select:focus,input:focus{outline:none;border-color:#6ee7b7}
 <!-- BOTTOM: Live Codebook -->
 <div class="codebook-bar expanded" id="codebookBar">
   <div class="codebook-bar-head" onclick="toggleCodebook()">
-    Shared Codebook (Live)
+    <span>&#128218;</span> Shared Codebook
     <div class="cb-stats" id="cbBarStats">
       <span>vocab: <span class="cv vocab" id="cbVocabCount">--</span></span>
       <span>phrases: <span class="cv phrase" id="cbPhraseCount">--</span></span>
       <span>learned: <span class="cv learned" id="cbLearnedCount">--</span></span>
-      <span>v<span class="cv" style="color:#a78bfa" id="cbVersion">--</span></span>
-      <span>fp: <span class="cv" style="color:#555" id="cbFingerprint">--</span></span>
+      <span>v<span class="cv" style="color:var(--purple)" id="cbVersion">--</span></span>
+      <span>fp: <span class="cv" style="color:var(--text-muted)" id="cbFingerprint">--</span></span>
     </div>
     <span class="cb-toggle" id="cbToggle">[collapse]</span>
   </div>
   <div class="codebook-bar-body">
     <div class="cb-controls">
-      <label class="field">Search</label>
+      <label class="form-label">Search</label>
       <input type="text" id="cbSearch" placeholder="Filter codes..." oninput="filterCodebook()" style="width:100%">
-      <label class="field" style="margin-top:4px">Filter type</label>
+      <label class="form-label" style="margin-top:4px">Filter Type</label>
       <select id="cbTypeFilter" onchange="filterCodebook()" style="width:100%">
         <option value="all">All types</option>
         <option value="vocab">Vocabulary</option>
         <option value="phrase">Phrases</option>
         <option value="learned">Learned</option>
       </select>
-      <div style="margin-top:auto;padding-top:6px;border-top:1px solid #1a1a24">
-        <button class="btn sm primary" onclick="showAddEntry()" style="width:100%;margin-bottom:3px">+ Add Entry</button>
-        <button class="btn sm train-btn" onclick="trainRef()" style="width:100%;margin-bottom:3px">Train codebook</button>
+      <div style="margin-top:auto;padding-top:8px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:4px">
+        <button class="btn sm primary" onclick="showAddEntry()" style="width:100%">+ Add Entry</button>
+        <button class="btn sm train-btn" onclick="trainRef()" style="width:100%">Train Codebook</button>
         <button class="btn sm" onclick="loadCodebook()" style="width:100%">Refresh</button>
       </div>
     </div>
     <div class="cb-scroll" id="cbScroll">
-      <!-- Add entry row (hidden by default) -->
       <div class="cb-add-row" id="cbAddRow" style="display:none">
         <input type="text" id="cbNewWord" placeholder="Word/phrase...">
-        <input type="text" id="cbNewCode" placeholder="Code..." style="max-width:60px">
-        <select id="cbNewType" style="font-size:9px">
+        <input type="text" id="cbNewCode" placeholder="Code..." style="max-width:80px">
+        <select id="cbNewType" style="font-size:11px">
           <option value="vocab">vocab</option>
           <option value="phrase">phrase</option>
           <option value="learned" selected>learned</option>
@@ -628,22 +1725,22 @@ select:focus,input:focus{outline:none;border-color:#6ee7b7}
         <button class="btn sm" onclick="hideAddEntry()">Cancel</button>
       </div>
       <table class="cb-table">
-        <thead><tr><th>Word / Phrase</th><th>Code</th><th>Type</th><th style="text-align:right">Freq</th><th style="text-align:right">Savings</th><th style="width:20px"></th></tr></thead>
+        <thead><tr><th>Word / Phrase</th><th>Code</th><th>Type</th><th style="text-align:right">Freq</th><th style="text-align:right">Savings</th><th style="width:24px"></th></tr></thead>
         <tbody id="cbBody"></tbody>
       </table>
     </div>
   </div>
 </div>
 
-<!-- Keyboard shortcuts help panel -->
+<!-- Keyboard shortcuts help -->
 <div class="kbd-help" id="kbdHelp">
   <div class="kbd-help-title">Keyboard Shortcuts</div>
   <div class="kbd-row"><span class="kbd-key">Ctrl+Enter</span><span class="kbd-desc">Compress</span></div>
   <div class="kbd-row"><span class="kbd-key">Ctrl+Shift+T</span><span class="kbd-desc">Train codebook</span></div>
-  <div class="kbd-row"><span class="kbd-key">Ctrl+D</span><span class="kbd-desc">Toggle decode map view</span></div>
+  <div class="kbd-row"><span class="kbd-key">Ctrl+D</span><span class="kbd-desc">Toggle decode map</span></div>
   <div class="kbd-row"><span class="kbd-key">?</span><span class="kbd-desc">Toggle this help</span></div>
 </div>
-<button class="kbd-help-btn" id="kbdHelpBtn" onclick="toggleKbdHelp()" data-tooltip="Keyboard shortcuts">?</button>
+<button class="kbd-help-btn" id="kbdHelpBtn" onclick="toggleKbdHelp()">?</button>
 
 <div class="toast" id="toast"></div>
 
@@ -651,14 +1748,14 @@ select:focus,input:focus{outline:none;border-color:#6ee7b7}
 let models = [];
 let currentTarget = 'claude';
 let chainResult = null;
-let currentPkgTab = 'visual';
+let currentCenterView = 'results';
 let refExpanded = false;
 let codebookData = null;
 let codebookExpanded = true;
 let isProcessing = false;
-let recentlyLearned = new Set(); // track codes learned in this session
-let editedEntries = new Set(); // track entries edited this session
-let newEntries = new Set(); // track entries added this session
+let recentlyLearned = new Set();
+let editedEntries = new Set();
+let newEntries = new Set();
 let kbdHelpVisible = false;
 
 // Timers and animations
@@ -668,10 +1765,9 @@ let waveAnimations = {};
 let layerElapsedTimers = {};
 let layerStartTimes = {};
 
-const TYPE_COLORS = {distill:'#4ade80', reference:'#a78bfa', compact:'#60a5fa'};
-const TYPE_BG = {distill:'#0d2818', reference:'#1a1830', compact:'#1a2030'};
+const TYPE_COLORS = {discover:'#4ade80', distill:'#4ade80', reference:'#a78bfa', structural:'#60a5fa', compact:'#60a5fa'};
+const TYPE_BG = {discover:'#0d2818', distill:'#0d2818', reference:'#1a1830', structural:'#1a2030', compact:'#1a2030'};
 
-// Commercial model lists
 const COMMERCIAL_MODELS = {
   claude: [
     {value:'claude-sonnet-4-20250514', label:'claude-sonnet-4'},
@@ -690,7 +1786,6 @@ const COMMERCIAL_MODELS = {
 };
 
 // ===== INIT =====
-
 window.addEventListener('DOMContentLoaded', async () => {
   await Promise.all([loadModels(), loadReferences(), checkStatus()]);
   loadSavedKeys();
@@ -698,8 +1793,18 @@ window.addEventListener('DOMContentLoaded', async () => {
   loadCodebook();
 });
 
-// ===== MODELS =====
+// ===== CENTER VIEW TABS =====
+function setCenterView(view) {
+  currentCenterView = view;
+  document.querySelectorAll('#centerTabs .tab').forEach(t => t.classList.remove('active'));
+  document.querySelector(`#centerTabs .tab[onclick*="${view}"]`).classList.add('active');
+  document.getElementById('resultsView').style.display = view === 'results' ? '' : 'none';
+  document.getElementById('packageView').style.display = view === 'package' ? '' : 'none';
+  document.getElementById('decodeView').style.display = view === 'decode' ? '' : 'none';
+  document.getElementById('jsonView').style.display = view === 'json' ? '' : 'none';
+}
 
+// ===== MODELS =====
 let ollamaAvailable = false;
 
 async function loadModels() {
@@ -712,8 +1817,7 @@ async function loadModels() {
     if (ollamaAvailable) {
       document.getElementById('modelCount').textContent = models.length + ' ollama + 3 commercial';
     } else {
-      document.getElementById('modelCount').innerHTML = '<span style="color:#fbbf24">No Ollama</span> | 3 commercial';
-      // Show warning in the layer config area
+      document.getElementById('modelCount').innerHTML = '<span style="color:var(--yellow)">No Ollama</span> | commercial only';
       const warn = document.getElementById('ollamaWarn');
       if (warn) warn.style.display = '';
     }
@@ -728,7 +1832,6 @@ async function loadModels() {
 function populateModelSelect(sel, provider) {
   const cur = sel.value;
   sel.innerHTML = '';
-
   if (provider && provider !== 'ollama') {
     const list = COMMERCIAL_MODELS[provider] || [];
     list.forEach(m => {
@@ -768,7 +1871,6 @@ async function checkStatus() {
 }
 
 // ===== REFERENCE FILES =====
-
 async function loadReferences() {
   try {
     const r = await fetch('/references');
@@ -798,7 +1900,7 @@ async function switchRef() {
     });
     const d = await r.json();
     updateRefDisplay(d.stats);
-    loadCodebook(); // refresh codebook
+    loadCodebook();
     toast('Switched to ' + name);
   } catch(e) { toast('Failed to switch ref'); }
 }
@@ -833,15 +1935,12 @@ async function trainRef() {
       version: d.reference_version,
       learned_count: d.new_codes_learned.length,
     });
-
-    // Track newly learned codes
     d.new_codes_learned.forEach(c => recentlyLearned.add(c.code));
-
-    let html = '<div style="font-size:9px;color:#a78bfa;margin-bottom:3px">Round ' + d.round +
+    let html = '<div style="font-size:11px;color:var(--purple);margin-bottom:4px">Round ' + d.round +
       ': comp=' + (d.avg_compression*100).toFixed(0) + '% fid=' + (d.avg_fidelity*100).toFixed(0) + '%</div>';
     if (d.new_codes_learned.length > 0) {
-      html += '<div style="font-size:8px;color:#666">New codes: ';
-      html += d.new_codes_learned.map(c => '<span style="color:#4ade80">' + esc(c.phrase) + '</span>=' + esc(c.code)).join(', ');
+      html += '<div style="font-size:10px;color:var(--text-muted)">New codes: ';
+      html += d.new_codes_learned.map(c => '<span style="color:var(--accent)">' + esc(c.phrase) + '</span>=' + esc(c.code)).join(', ');
       html += '</div>';
     }
     d.results.forEach(r => {
@@ -853,7 +1952,7 @@ async function trainRef() {
     });
     document.getElementById('trainResults').innerHTML = html;
     await loadReferences();
-    loadCodebook(); // refresh codebook with new learned codes
+    loadCodebook();
     toast('Training complete: ' + d.new_codes_learned.length + ' new codes');
   } catch(e) { toast('Training failed'); }
   finally { btns.forEach(b => { b.disabled = false; b.textContent = 'Train'; }); }
@@ -861,13 +1960,14 @@ async function trainRef() {
 
 function toggleRef() {
   refExpanded = !refExpanded;
-  document.getElementById('refBody').classList.toggle('collapsed', !refExpanded);
-  document.getElementById('refToggle').textContent = refExpanded ? '[collapse]' : '[expand]';
+  document.getElementById('refBody').classList.toggle('open', refExpanded);
+  const icon = document.getElementById('refToggle');
+  icon.classList.toggle('open', refExpanded);
 }
 
 function updateRefDisplay(stats) {
   if (!stats) return;
-  document.getElementById('refInfo').textContent = 'ref: ' + (stats.name || 'default') + ' v' + (stats.version || '?');
+  document.getElementById('refInfo').textContent = (stats.name || 'default') + ' v' + (stats.version || '?');
   document.getElementById('refVersion').textContent = stats.version || '--';
   document.getElementById('refVocab').textContent = stats.vocabulary_count || '--';
   document.getElementById('refPhrases').textContent = stats.phrase_count || '--';
@@ -876,7 +1976,6 @@ function updateRefDisplay(stats) {
 }
 
 // ===== CODEBOOK (BOTTOM BAR) =====
-
 function toggleCodebook() {
   codebookExpanded = !codebookExpanded;
   document.getElementById('codebookBar').className = 'codebook-bar ' + (codebookExpanded ? 'expanded' : 'collapsed');
@@ -888,7 +1987,7 @@ async function loadCodebook() {
     const r = await fetch('/reference/full');
     codebookData = await r.json();
     renderCodebook();
-  } catch(e) { /* silent */ }
+  } catch(e) {}
 }
 
 function renderCodebook(filter, typeFilter) {
@@ -897,7 +1996,6 @@ function renderCodebook(filter, typeFilter) {
   const f = (filter || document.getElementById('cbSearch')?.value || '').toLowerCase();
   const tf = typeFilter || document.getElementById('cbTypeFilter')?.value || 'all';
 
-  // Update bar stats
   const vocabCount = Object.keys(d.vocabulary).length;
   const phraseCount = Object.keys(d.phrases).length;
   const learnedCount = Object.keys(d.learned || {}).length;
@@ -907,7 +2005,6 @@ function renderCodebook(filter, typeFilter) {
   document.getElementById('cbVersion').textContent = d.version;
   document.getElementById('cbFingerprint').textContent = d.fingerprint;
 
-  // Build rows
   let rows = [];
   if (tf === 'all' || tf === 'vocab') {
     for (const [word, code] of Object.entries(d.vocabulary)) {
@@ -931,7 +2028,6 @@ function renderCodebook(filter, typeFilter) {
     }
   }
 
-  // Sort by frequency desc, then alphabetically
   rows.sort((a,b) => b.freq - a.freq || a.word.localeCompare(b.word));
 
   const tbody = document.getElementById('cbBody');
@@ -939,7 +2035,7 @@ function renderCodebook(filter, typeFilter) {
     const isEdited = editedEntries.has(r.word);
     const isAdded = newEntries.has(r.word);
     const rowClass = isAdded ? 'cb-new' : isEdited ? 'cb-edited' : (r.isNew ? 'highlight' : '');
-    return `<tr class="${rowClass}" ondblclick="startEditRow(this, '${esc(r.word).replace(/'/g,"\\'")}', '${esc(r.code).replace(/'/g,"\\'")}', '${r.type}')"><td class="cb-word">${esc(r.word)}</td><td class="cb-code">${esc(r.code)}</td><td><span class="cb-type-tag ${r.type}">${r.type}</span></td><td class="cb-freq">${r.freq}</td><td style="text-align:right;font-size:8px;color:${r.savings > 0 ? '#4ade80' : '#555'}">${r.savings > 0 ? '-' + r.savings : r.savings}</td><td><button class="cb-delete-btn" onclick="event.stopPropagation();deleteEntry('${esc(r.word).replace(/'/g,"\\'")}')" title="Delete entry">&times;</button></td></tr>`;
+    return `<tr class="${rowClass}" ondblclick="startEditRow(this, '${esc(r.word).replace(/'/g,"\\'")}', '${esc(r.code).replace(/'/g,"\\'")}', '${r.type}')"><td class="cb-word">${esc(r.word)}</td><td class="cb-code">${esc(r.code)}</td><td><span class="cb-type-tag ${r.type}">${r.type}</span></td><td class="cb-freq">${r.freq}</td><td style="text-align:right;font-size:10px;color:${r.savings > 0 ? 'var(--accent)' : 'var(--text-muted)'}">${r.savings > 0 ? '-' + r.savings : r.savings}</td><td><button class="cb-delete-btn" onclick="event.stopPropagation();deleteEntry('${esc(r.word).replace(/'/g,"\\'")}')" title="Delete">&times;</button></td></tr>`;
   }).join('');
 }
 
@@ -949,8 +2045,10 @@ function filterCodebook() {
   renderCodebook(q, tf);
 }
 
-// ===== LAYER MANAGEMENT =====
+function showAddEntry() { document.getElementById('cbAddRow').style.display = ''; }
+function hideAddEntry() { document.getElementById('cbAddRow').style.display = 'none'; }
 
+// ===== LAYER MANAGEMENT =====
 function addLayer(type, modelName, provider) {
   const container = document.getElementById('layerConfigs');
   const idx = container.children.length + 1;
@@ -962,24 +2060,24 @@ function addLayer(type, modelName, provider) {
   const prov = provider || 'ollama';
 
   let row1 = `<div class="layer-cfg-head">
-    <span class="num ${type}">${idx}</span>
-    <span class="type-label ${type}">${type.toUpperCase()}</span>
-    ${needsModel ? '<select class="layer-model-select" style="flex:1"></select>' : '<span style="flex:1;font-size:8px;color:#a78bfa">Uses shared reference file</span>'}
-    <span class="remove" onclick="removeLayer(this)">&times;</span>
+    <span class="layer-num ${type}">${idx}</span>
+    <span class="type-tag ${type}">${type.toUpperCase()}</span>
+    ${needsModel ? '<select class="layer-model-select" style="flex:1"></select>' : '<span style="flex:1;font-size:11px;color:var(--purple)">Uses shared reference file</span>'}
+    <button class="remove-btn" onclick="removeLayer(this)">&times;</button>
   </div>`;
 
   let row2 = '';
   if (needsModel) {
     row2 = `<div class="layer-cfg-row2">
-      <span class="provider-label">Provider:</span>
-      <select class="layer-provider-select" onchange="onProviderChange(this)" style="font-size:8px">
+      <span style="color:var(--text-muted);font-size:10px">Provider:</span>
+      <select class="layer-provider-select" onchange="onProviderChange(this)" style="font-size:11px">
         <option value="ollama" ${prov==='ollama'?'selected':''}>Ollama (local)</option>
         <option value="claude" ${prov==='claude'?'selected':''}>Claude</option>
         <option value="gpt" ${prov==='gpt'?'selected':''}>GPT</option>
         <option value="grok" ${prov==='grok'?'selected':''}>Grok</option>
       </select>
       <span class="provider-badge ${prov}" id="prov-badge-${idx}">${prov}</span>
-      <input type="password" class="layer-api-key" placeholder="API key (if commercial)" style="flex:1;font-size:8px;display:${prov==='ollama'?'none':''}">
+      <input type="password" class="layer-api-key" placeholder="API key (if commercial)" style="flex:1;font-size:11px;display:${prov==='ollama'?'none':''}">
     </div>`;
   }
 
@@ -1002,15 +2100,9 @@ function onProviderChange(provSel) {
   const modelSel = card.querySelector('.layer-model-select');
   const keyInput = card.querySelector('.layer-api-key');
   const badge = card.querySelector('[id^="prov-badge"]');
-
   if (modelSel) populateModelSelect(modelSel, provider);
   if (keyInput) keyInput.style.display = provider === 'ollama' ? 'none' : '';
-  if (badge) {
-    badge.className = 'provider-badge ' + provider;
-    badge.textContent = provider;
-  }
-
-  // Pre-fill API key from saved keys
+  if (badge) { badge.className = 'provider-badge ' + provider; badge.textContent = provider; }
   if (provider !== 'ollama' && keyInput) {
     const savedKey = localStorage.getItem('pfkey_' + provider);
     if (savedKey && !keyInput.value) keyInput.value = savedKey;
@@ -1023,30 +2115,22 @@ function addDefaultChain() {
     const avail = models.map(m => m.name);
     const m1 = avail[0] || 'qwen2.5:1.5b';
     const m2 = avail.length > 1 ? avail[1] : (avail[0] || 'llama3.2:1b');
-    addLayer('distill', m1, 'ollama');
+    addLayer('discover', m1, 'ollama');
     addLayer('reference');
-    addLayer('compact', m2, 'ollama');
+    addLayer('structural', m2, 'ollama');
   } else {
-    // No Ollama -- default to Claude for LLM layers
-    addLayer('distill', 'claude-sonnet-4-20250514', 'claude');
+    addLayer('discover', 'claude-sonnet-4-20250514', 'claude');
     addLayer('reference');
-    addLayer('compact', 'claude-sonnet-4-20250514', 'claude');
+    addLayer('structural', 'claude-sonnet-4-20250514', 'claude');
   }
 }
 
-function removeLayer(el) {
-  el.closest('.layer-cfg').remove();
-  updateLayerNums();
-}
-
-function clearLayers() {
-  document.getElementById('layerConfigs').innerHTML = '';
-  updateLayerNums();
-}
+function removeLayer(el) { el.closest('.layer-cfg').remove(); updateLayerNums(); }
+function clearLayers() { document.getElementById('layerConfigs').innerHTML = ''; updateLayerNums(); }
 
 function updateLayerNums() {
   const cards = document.querySelectorAll('#layerConfigs .layer-cfg');
-  cards.forEach((c, i) => c.querySelector('.num').textContent = i + 1);
+  cards.forEach((c, i) => c.querySelector('.layer-num').textContent = i + 1);
   document.getElementById('layerBadge').textContent = cards.length + ' layers';
 }
 
@@ -1057,13 +2141,11 @@ function getLayerConfigs() {
     const sel = c.querySelector('.layer-model-select');
     const provSel = c.querySelector('.layer-provider-select');
     const keyInput = c.querySelector('.layer-api-key');
-
     const cfg = {type};
     if (sel) cfg.model = sel.value;
     if (provSel) cfg.provider = provSel.value;
     if (keyInput && keyInput.value.trim()) {
       cfg.api_key = keyInput.value.trim();
-      // Also save key for this provider
       if (provSel) localStorage.setItem('pfkey_' + provSel.value, keyInput.value.trim());
     }
     configs.push(cfg);
@@ -1071,18 +2153,15 @@ function getLayerConfigs() {
   return configs;
 }
 
-// ===== WAVEFORM ANIMATION =====
-
+// ===== WAVEFORM =====
 function startWaveform(layerIdx, type) {
   const canvas = document.getElementById('wave-' + layerIdx);
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
   canvas.width = canvas.parentElement.offsetWidth;
-  canvas.height = 30;
-
+  canvas.height = 34;
   const color = TYPE_COLORS[type] || '#6ee7b7';
   let phase = 0;
-
   function animate() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.strokeStyle = color;
@@ -1097,7 +2176,6 @@ function startWaveform(layerIdx, type) {
       if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
     ctx.stroke();
-
     ctx.globalAlpha = 0.2;
     ctx.beginPath();
     for (let x = 0; x < canvas.width; x++) {
@@ -1107,7 +2185,6 @@ function startWaveform(layerIdx, type) {
       if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
     ctx.stroke();
-
     phase += 0.06;
     waveAnimations[layerIdx] = requestAnimationFrame(animate);
   }
@@ -1115,53 +2192,31 @@ function startWaveform(layerIdx, type) {
 }
 
 function stopWaveform(layerIdx) {
-  if (waveAnimations[layerIdx]) {
-    cancelAnimationFrame(waveAnimations[layerIdx]);
-    delete waveAnimations[layerIdx];
-  }
+  if (waveAnimations[layerIdx]) { cancelAnimationFrame(waveAnimations[layerIdx]); delete waveAnimations[layerIdx]; }
 }
-
-function stopAllWaveforms() {
-  for (const k of Object.keys(waveAnimations)) stopWaveform(k);
-}
+function stopAllWaveforms() { for (const k of Object.keys(waveAnimations)) stopWaveform(k); }
 
 // ===== ELAPSED TIMERS =====
-
 function startLayerTimer(layerIdx) {
   layerStartTimes[layerIdx] = Date.now();
   const el = document.getElementById('layer-elapsed-' + layerIdx);
   if (!el) return;
   layerElapsedTimers[layerIdx] = setInterval(() => {
-    const elapsed = (Date.now() - layerStartTimes[layerIdx]) / 1000;
-    el.textContent = elapsed.toFixed(1) + 's';
+    el.textContent = ((Date.now() - layerStartTimes[layerIdx]) / 1000).toFixed(1) + 's';
   }, 100);
 }
-
 function stopLayerTimer(layerIdx) {
-  if (layerElapsedTimers[layerIdx]) {
-    clearInterval(layerElapsedTimers[layerIdx]);
-    delete layerElapsedTimers[layerIdx];
-  }
+  if (layerElapsedTimers[layerIdx]) { clearInterval(layerElapsedTimers[layerIdx]); delete layerElapsedTimers[layerIdx]; }
 }
-
 function startGlobalTimer() {
   globalStartTime = Date.now();
-  const el = document.getElementById('psElapsed');
   globalElapsedTimer = setInterval(() => {
-    const elapsed = (Date.now() - globalStartTime) / 1000;
-    el.textContent = elapsed.toFixed(1) + 's';
+    document.getElementById('psElapsed').textContent = ((Date.now() - globalStartTime) / 1000).toFixed(1) + 's';
   }, 100);
 }
-
-function stopGlobalTimer() {
-  if (globalElapsedTimer) {
-    clearInterval(globalElapsedTimer);
-    globalElapsedTimer = null;
-  }
-}
+function stopGlobalTimer() { if (globalElapsedTimer) { clearInterval(globalElapsedTimer); globalElapsedTimer = null; } }
 
 // ===== STREAMING COMPRESSION =====
-
 async function runChainStream() {
   const text = document.getElementById('inputText').value.trim();
   if (!text) return toast('Enter text first');
@@ -1175,13 +2230,17 @@ async function runChainStream() {
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span> Running...';
 
-  // Show results section with placeholders
+  // Switch to results view
+  setCenterView('results');
+
+  // Show results, hide empty state
   document.getElementById('resultsSection').style.display = '';
+  document.getElementById('emptyState').style.display = 'none';
   document.getElementById('statsRow').style.display = 'none';
   document.getElementById('decodedSection').style.display = 'none';
   document.getElementById('compGauge').style.display = 'none';
 
-  // Show processing status bar
+  // Show processing
   const ps = document.getElementById('processStatus');
   ps.style.display = '';
   document.getElementById('psLabel').textContent = 'Initializing...';
@@ -1190,11 +2249,11 @@ async function runChainStream() {
   startGlobalTimer();
 
   // Show live text
-  document.getElementById('liveTextSection').style.display = '';
+  const lts = document.getElementById('liveTextSection');
+  lts.style.display = '';
   document.getElementById('liveText').textContent = text;
   document.getElementById('liveCharCount').textContent = text.length + ' chars';
 
-  // Build placeholder layer cards
   buildPlaceholderCards(layerConfigs, text);
 
   try {
@@ -1203,35 +2262,23 @@ async function runChainStream() {
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({text, layer_configs: layerConfigs})
     });
-
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
-
     while (true) {
       const {done, value} = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, {stream: true});
-
       const lines = buffer.split('\n');
       buffer = lines.pop();
-
       for (const line of lines) {
         if (!line.trim()) continue;
-        try {
-          const event = JSON.parse(line);
-          handleStreamEvent(event, layerConfigs);
-        } catch(e) { /* skip malformed lines */ }
+        try { handleStreamEvent(JSON.parse(line), layerConfigs); } catch(e) {}
       }
     }
-
-    // Process remaining buffer
     if (buffer.trim()) {
-      try {
-        handleStreamEvent(JSON.parse(buffer), layerConfigs);
-      } catch(e) {}
+      try { handleStreamEvent(JSON.parse(buffer), layerConfigs); } catch(e) {}
     }
-
   } catch(e) {
     toast('Failed: ' + e.message);
   } finally {
@@ -1241,7 +2288,6 @@ async function runChainStream() {
     stopGlobalTimer();
     stopAllWaveforms();
     for (const k of Object.keys(layerElapsedTimers)) stopLayerTimer(k);
-    // Refresh codebook after compression (may have updated frequency counts)
     loadCodebook();
   }
 }
@@ -1249,15 +2295,13 @@ async function runChainStream() {
 function buildPlaceholderCards(configs, text) {
   const container = document.getElementById('resultLayers');
   let html = '';
-
-  // Original input
   html += `<div class="result-layer layer-complete" id="layer-card-0">
     <div class="result-layer-head">
-      <span class="num" style="background:#1a1a24;color:#888">0</span>
-      <span style="color:#888">Original Input</span>
+      <span class="layer-num" style="background:var(--bg-hover);color:var(--text-muted)">0</span>
+      <span style="color:var(--text-muted)">Original Input</span>
       <span class="meta">
-        <span style="color:#666">${text.length} chars</span>
-        <span style="color:#555">${text.split(/\s+/).length} words</span>
+        <span style="color:var(--text-muted)">${text.length} chars</span>
+        <span style="color:var(--text-muted)">${text.split(/\s+/).length} words</span>
       </span>
     </div>
     <div class="result-layer-body">${esc(text)}</div>
@@ -1268,20 +2312,17 @@ function buildPlaceholderCards(configs, text) {
     const provider = cfg.provider || 'ollama';
     const model = cfg.model || (type === 'reference' ? 'shared reference' : '');
     const displayModel = provider !== 'ollama' && type !== 'reference' ? provider + ':' + model : model;
-    html += '<div class="arrow" id="arrow-' + i + '">|</div>';
+    html += '<div class="arrow" id="arrow-' + i + '">&#8595;</div>';
     html += `<div class="result-layer layer-waiting" id="layer-card-${i+1}">
       <div class="result-layer-head">
-        <span class="num ${type}">${i+1}</span>
-        <span class="type-label ${type}">${type.toUpperCase()}</span>
+        <span class="layer-num ${type}">${i+1}</span>
+        <span class="type-tag ${type}">${type.toUpperCase()}</span>
         <span class="model-tag">${esc(displayModel)}</span>
         ${provider !== 'ollama' && type !== 'reference' ? '<span class="provider-badge ' + provider + '">' + provider + '</span>' : ''}
-        <span class="meta">
-          <span style="color:#555">waiting...</span>
-        </span>
+        <span class="meta"><span style="color:var(--text-muted)">waiting...</span></span>
       </div>
     </div>`;
   });
-
   container.innerHTML = html;
 }
 
@@ -1291,80 +2332,61 @@ function handleStreamEvent(event, configs) {
     document.getElementById('psDetail').textContent = event.total_layers + ' layers, ' + event.input_len + ' chars input';
     buildPipelineFlow(configs, event.input_len);
   }
-
   else if (event.event === 'layer_start') {
     const idx = event.layer;
     const card = document.getElementById('layer-card-' + idx);
     if (!card) return;
-
     const provider = event.provider || 'ollama';
-
-    // Update status bar
     document.getElementById('psLabel').textContent = 'Layer ' + idx + '/' + configs.length;
     document.getElementById('psDetail').innerHTML =
-      '<span style="color:' + (TYPE_COLORS[event.type] || '#6ee7b7') + '">' + event.type.toUpperCase() + '</span> ' +
+      '<span style="color:' + (TYPE_COLORS[event.type] || 'var(--accent)') + '">' + event.type.toUpperCase() + '</span> ' +
       (provider !== 'ollama' ? '<span class="provider-badge ' + provider + '" style="margin:0 3px">' + provider + '</span> ' : '') +
       (event.type !== 'reference' ? 'via ' + esc(event.model) + ' ' : '') +
       '(' + event.input_len + ' chars, ' + event.input_words + ' words)';
     document.getElementById('progressFill').style.width = ((idx - 1) / configs.length * 100) + '%';
 
-    // Activate card
     card.className = 'result-layer layer-processing';
     card.innerHTML = `
       <div class="result-layer-head">
-        <span class="num ${event.type}">${idx}</span>
-        <span class="type-label ${event.type}">${event.type.toUpperCase()}</span>
+        <span class="layer-num ${event.type}">${idx}</span>
+        <span class="type-tag ${event.type}">${event.type.toUpperCase()}</span>
         <span class="model-tag">${esc(event.model)}</span>
         ${provider !== 'ollama' ? '<span class="provider-badge ' + provider + '">' + provider + '</span>' : ''}
         <span class="meta">
           <span class="spinner"></span>
-          <span style="color:${TYPE_COLORS[event.type] || '#6ee7b7'}">processing...</span>
-          <span style="color:#fbbf24;font-variant-numeric:tabular-nums" id="layer-elapsed-${idx}">0.0s</span>
+          <span style="color:${TYPE_COLORS[event.type] || 'var(--accent)'}">processing...</span>
+          <span style="color:var(--yellow);font-family:'JetBrains Mono',monospace" id="layer-elapsed-${idx}">0.0s</span>
         </span>
       </div>
       <div class="waveform-container"><canvas id="wave-${idx}"></canvas></div>
       <div class="processing-info">
         <span>Input: <span class="pi-val">${event.input_len}</span> chars</span>
         <span>Words: <span class="pi-val">${event.input_words}</span></span>
-        ${event.type === 'distill' ? '<span>Strategy: <span class="pi-val">LLM rephrase (preserve meaning, reduce words)</span></span>' : ''}
+        ${event.type === 'discover' || event.type === 'distill' ? '<span>Strategy: <span class="pi-val">LLM analysis + codebook learning + deterministic encoding</span></span>' : ''}
         ${event.type === 'reference' ? '<span>Strategy: <span class="pi-val">Deterministic codebook substitution (fully reversible)</span></span>' : ''}
-        ${event.type === 'compact' ? '<span>Strategy: <span class="pi-val">LLM merge codes + symbol compression</span></span>' : ''}
+        ${event.type === 'structural' || event.type === 'compact' ? '<span>Strategy: <span class="pi-val">LLM structural analysis + shortcut learning + deterministic encoding</span></span>' : ''}
       </div>`;
-
     startWaveform(idx, event.type);
     startLayerTimer(idx);
     updatePipelineNode(idx, 'active', null);
   }
-
   else if (event.event === 'layer_complete') {
     const idx = event.layer;
     const r = event.result;
     stopWaveform(idx);
     stopLayerTimer(idx);
-
-    // Update progress
     document.getElementById('progressFill').style.width = (idx / configs.length * 100) + '%';
-
-    // Update live text
     document.getElementById('liveText').textContent = r.output;
     document.getElementById('liveCharCount').textContent = event.running_chars + ' chars (' + (event.running_compression * 100).toFixed(0) + '% compressed)';
-
-    // Render completed card
     renderCompletedLayerCard(idx, r);
     updatePipelineNode(idx, 'done', event.running_chars);
   }
-
   else if (event.event === 'chain_complete') {
     chainResult = event;
-
-    // Hide processing UI
     document.getElementById('processStatus').style.display = 'none';
     document.getElementById('liveTextSection').style.display = 'none';
-
-    // Show pipeline summary
     renderPipelineSummary(event);
 
-    // Show stats
     document.getElementById('statsRow').style.display = '';
     document.getElementById('statComp').textContent = (event.total_compression * 100).toFixed(0) + '%';
     document.getElementById('statChars').textContent = event.original.length + ' > ' + event.final_encoded.length;
@@ -1374,21 +2396,17 @@ function handleStreamEvent(event, configs) {
     if (event.fidelity != null) {
       fid.textContent = (event.fidelity * 100).toFixed(0) + '%';
       fid.className = 'stat-val ' + (event.fidelity > .7 ? 'green' : event.fidelity > .4 ? 'yellow' : 'red');
-    } else {
-      fid.textContent = '--';
-      fid.className = 'stat-val';
-    }
+    } else { fid.textContent = '--'; fid.className = 'stat-val'; }
 
-    // Compression gauge + donut
+    // Gauge
     const gauge = document.getElementById('compGauge');
-    gauge.style.display = '';
+    gauge.style.display = 'flex';
     const compPct = (event.total_compression * 100).toFixed(0);
     document.getElementById('gaugeVal').textContent = compPct + '%';
     document.getElementById('gaugeSub').textContent = (event.original.length - event.final_encoded.length) + ' chars saved in ' + event.total_time_ms.toFixed(0) + 'ms';
     document.getElementById('donutLabel').textContent = compPct + '%';
     setTimeout(() => {
       document.getElementById('gaugeFill').style.width = compPct + '%';
-      // Animate donut: circumference = 2*pi*14 = 87.96
       const offset = 87.96 * (1 - event.total_compression);
       document.getElementById('donutFill').style.strokeDashoffset = offset;
     }, 50);
@@ -1400,13 +2418,16 @@ function handleStreamEvent(event, configs) {
     // Package
     renderPackage(event);
     document.getElementById('submitSection').style.display = '';
+
+    // Show resp badge
+    document.getElementById('respBadge').style.display = '';
+    document.getElementById('respBadge').textContent = 'ready';
   }
 }
 
 function renderCompletedLayerCard(idx, l) {
   const card = document.getElementById('layer-card-' + idx);
   if (!card) return;
-
   const hasError = l.error || (l.detail && l.detail.status === 'error');
   const keptOriginal = l.detail && (l.detail.status === 'kept-original');
   card.className = 'result-layer ' + (hasError ? 'layer-error' : 'layer-complete');
@@ -1418,33 +2439,30 @@ function renderCompletedLayerCard(idx, l) {
 
   let html = '';
 
-  // Show prominent error banner if layer failed
   if (hasError) {
     const errMsg = l.error || d.error || 'Unknown error';
     html += `<div class="layer-error-banner">
-      <span style="font-size:12px">&#9888;</span> LAYER FAILED: ${esc(errMsg)}
-      <div style="font-size:8px;color:#fca5a5;margin-top:2px">Text passed through unchanged. Switch to a commercial provider or check Ollama status.</div>
+      &#9888; LAYER FAILED: ${esc(errMsg)}
+      <div style="font-size:11px;color:#fca5a5;margin-top:3px">Text passed through unchanged. Switch to a commercial provider or check Ollama status.</div>
     </div>`;
   }
-
-  // Show warning if kept original (LLM did nothing useful)
   if (keptOriginal && !hasError) {
     html += `<div class="layer-warn-banner">
-      <span style="font-size:10px">&#9888;</span> LLM output was longer than input -- kept original. Try a different model or lower temperature.
+      &#9888; LLM output was longer than input -- kept original. Try a different model or lower temperature.
     </div>`;
   }
 
   html += `<div class="result-layer-head">
-    <span class="num ${l.type}">${l.layer}</span>
-    <span class="type-label ${l.type}">${l.type.toUpperCase()}</span>
+    <span class="layer-num ${l.type}">${l.layer}</span>
+    <span class="type-tag ${l.type}">${l.type.toUpperCase()}</span>
     <span class="model-tag">${esc(l.model)}</span>
     <span class="meta">
-      ${hasError ? '<span style="color:#f87171;font-weight:700">ERROR</span>' :
-        keptOriginal ? '<span style="color:#fbbf24;font-weight:700">NO CHANGE</span>' :
-        '<span class="ratio" data-tooltip="Compression ratio for this layer">' + (l.compression * 100).toFixed(0) + '%</span>'}
+      ${hasError ? '<span style="color:var(--red);font-weight:700">ERROR</span>' :
+        keptOriginal ? '<span style="color:var(--yellow);font-weight:700">NO CHANGE</span>' :
+        '<span class="ratio" data-tooltip="Compression ratio">' + (l.compression * 100).toFixed(0) + '%</span>'}
       <span class="time" data-tooltip="Processing time">${l.time_ms.toFixed(0)}ms</span>
-      ${subCount > 0 ? '<span style="color:#a78bfa" data-tooltip="Substitutions applied">' + subCount + ' subs</span>' : ''}
-      <span style="color:#555">${l.input_len}&rarr;${l.output_len}</span>
+      ${subCount > 0 ? '<span style="color:var(--purple)" data-tooltip="Substitutions applied">' + subCount + ' subs</span>' : ''}
+      <span style="color:var(--text-muted)">${l.input_len}&rarr;${l.output_len}</span>
     </span>
     <span class="detail-toggle" onclick="toggleDetail('${detailId}')">details</span>
   </div>`;
@@ -1452,12 +2470,11 @@ function renderCompletedLayerCard(idx, l) {
   html += `<div class="result-layer-input"><span class="input-label">in: </span>${esc(l.input)}</div>`;
   html += `<div class="result-layer-body">${esc(l.output)}</div>`;
 
-  // For reference layers, show substitutions as pill tags
-  if (l.type === 'reference' && subs.length > 0) {
+  if ((l.type === 'reference' || l.type === 'discover' || l.type === 'structural') && subs.length > 0) {
     html += '<div class="result-layer-subs">';
     const displaySubs = subs.slice(0, 20);
     html += generateSubPills(displaySubs);
-    if (subs.length > 20) html += ' <span style="color:#555">+' + (subs.length - 20) + ' more</span>';
+    if (subs.length > 20) html += ' <span style="color:var(--text-muted)">+' + (subs.length - 20) + ' more</span>';
     html += '</div>';
   } else if (subs.length > 0) {
     html += '<div class="result-layer-subs">';
@@ -1467,28 +2484,20 @@ function renderCompletedLayerCard(idx, l) {
       const code = entry.length === 3 ? entry[2] : entry[1];
       html += '<span class="sub-item"><span class="sub-from">' + esc(orig) + '</span> <span class="sub-to">' + esc(code || '(removed)') + '</span></span>';
     });
-    if (subs.length > 20) html += ' <span style="color:#555">+' + (subs.length - 20) + ' more</span>';
+    if (subs.length > 20) html += ' <span style="color:var(--text-muted)">+' + (subs.length - 20) + ' more</span>';
     html += '</div>';
   }
 
   // Detail panel
   html += `<div class="detail-panel" id="${detailId}">`;
-
-  if (d.description) {
-    html += `<div class="detail-section"><div style="color:#6ee7b7;font-size:9px;margin-bottom:3px">${esc(d.description)}</div></div>`;
-  }
-
+  if (d.description) html += `<div class="detail-section"><div style="color:var(--accent);font-size:11px;margin-bottom:4px">${esc(d.description)}</div></div>`;
   if (d.status) {
     const statusColor = d.status === 'error' ? 'red' : d.status.includes('kept') ? 'yellow' : 'green';
     html += `<div class="detail-kv"><span class="detail-k">Status</span><span class="detail-v ${statusColor}">${esc(d.status)}</span></div>`;
   }
+  html += `<div class="detail-section"><div class="detail-section-head">Before / After Diff</div><div class="diff-view">${generateDiffHTML(l.input, l.output)}</div></div>`;
 
-  // Before/after diff view (all layer types)
-  html += `<div class="detail-section"><div class="detail-section-head">Before / After Diff</div>`;
-  html += `<div class="diff-view">${generateDiffHTML(l.input, l.output)}</div></div>`;
-
-  if (l.type === 'distill') {
-    // Word-by-word comparison for distill layers
+  if (l.type === 'distill' || l.type === 'discover') {
     if (d.input_words != null) {
       html += `<div class="detail-section"><div class="detail-section-head">Word Analysis</div>`;
       html += `<div class="detail-kv"><span class="detail-k">Words</span><span class="detail-v">${d.input_words} in &rarr; ${d.output_words} out (${d.words_reduction >= 0 ? '-' : '+'}${Math.abs(d.words_reduction)})</span></div>`;
@@ -1498,29 +2507,20 @@ function renderCompletedLayerCard(idx, l) {
     }
     if (d.key_words_kept?.length > 0 || d.key_words_lost?.length > 0 || d.key_words_added?.length > 0) {
       html += `<div class="detail-section"><div class="detail-section-head">Key Words</div>`;
-      if (d.key_words_kept?.length > 0)
-        html += '<div style="margin-bottom:2px">' + d.key_words_kept.map(w => '<span class="word-tag kept">' + esc(w) + '</span>').join('') + '</div>';
-      if (d.key_words_lost?.length > 0)
-        html += '<div style="margin-bottom:2px"><span style="color:#555;font-size:8px">Lost: </span>' + d.key_words_lost.map(w => '<span class="word-tag lost">' + esc(w) + '</span>').join('') + '</div>';
-      if (d.key_words_added?.length > 0)
-        html += '<div style="margin-bottom:2px"><span style="color:#555;font-size:8px">Added: </span>' + d.key_words_added.map(w => '<span class="word-tag added">' + esc(w) + '</span>').join('') + '</div>';
+      if (d.key_words_kept?.length > 0) html += '<div style="margin-bottom:3px">' + d.key_words_kept.map(w => '<span class="word-tag kept">' + esc(w) + '</span>').join('') + '</div>';
+      if (d.key_words_lost?.length > 0) html += '<div style="margin-bottom:3px"><span style="color:var(--text-muted);font-size:10px">Lost: </span>' + d.key_words_lost.map(w => '<span class="word-tag lost">' + esc(w) + '</span>').join('') + '</div>';
+      if (d.key_words_added?.length > 0) html += '<div style="margin-bottom:3px"><span style="color:var(--text-muted);font-size:10px">Added: </span>' + d.key_words_added.map(w => '<span class="word-tag added">' + esc(w) + '</span>').join('') + '</div>';
       html += '</div>';
     }
-    if (d.raw_llm_output) {
-      html += `<div class="detail-section"><div class="detail-section-head">Raw LLM Output</div><div class="detail-raw">${esc(d.raw_llm_output)}</div></div>`;
-    }
-    if (d.prompt_used) {
-      html += `<div class="detail-section"><div class="detail-section-head">Prompt Sent to LLM</div><div class="detail-prompt">${esc(d.prompt_used)}</div></div>`;
-    }
+    if (d.raw_llm_output) html += `<div class="detail-section"><div class="detail-section-head">Raw LLM Output</div><div class="detail-raw">${esc(d.raw_llm_output)}</div></div>`;
+    if (d.prompt_used) html += `<div class="detail-section"><div class="detail-section-head">Prompt Sent to LLM</div><div class="detail-prompt">${esc(d.prompt_used)}</div></div>`;
   }
 
   if (l.type === 'reference') {
-    // Substitutions shown as colored pill tags
     if (subs.length > 0) {
       html += `<div class="detail-section"><div class="detail-section-head">Substitutions (Pill View)</div>`;
       html += `<div style="max-height:100px;overflow-y:auto">${generateSubPills(subs)}</div></div>`;
     }
-
     html += `<div class="detail-section"><div class="detail-section-head">Reference File</div>`;
     html += `<div class="detail-kv"><span class="detail-k">File</span><span class="detail-v purple">${esc(d.reference_file || '?')} v${d.reference_version || '?'}</span></div>`;
     html += `<div class="detail-kv"><span class="detail-k">Fingerprint</span><span class="detail-v">${esc(d.reference_fingerprint || '?')}</span></div>`;
@@ -1528,28 +2528,22 @@ function renderCompletedLayerCard(idx, l) {
     html += '</div>';
     html += `<div class="detail-section"><div class="detail-section-head">Substitution Breakdown</div>`;
     html += `<div class="detail-kv"><span class="detail-k">Hit rate</span><span class="detail-v yellow">${((d.hit_rate || 0) * 100).toFixed(0)}% (${d.substitutions_total || 0} subs / ${d.input_word_count || 0} words)</span></div>`;
-    html += `<div class="detail-kv"><span class="detail-k">By type</span><span class="detail-v">vocab: <span style="color:#4ade80">${d.substitutions_vocab || 0}</span> | phrases: <span style="color:#a78bfa">${d.substitutions_phrase || 0}</span> | learned: <span style="color:#60a5fa">${d.substitutions_learned || 0}</span> | removals: <span style="color:#f87171">${d.substitutions_removals || 0}</span></span></div>`;
+    html += `<div class="detail-kv"><span class="detail-k">By type</span><span class="detail-v">vocab: <span style="color:var(--accent)">${d.substitutions_vocab || 0}</span> | phrases: <span style="color:var(--purple)">${d.substitutions_phrase || 0}</span> | learned: <span style="color:var(--blue)">${d.substitutions_learned || 0}</span> | removals: <span style="color:var(--red)">${d.substitutions_removals || 0}</span></span></div>`;
     html += `<div class="detail-kv"><span class="detail-k">Chars saved</span><span class="detail-v green">${d.total_chars_saved || 0} characters</span></div>`;
     html += '</div>';
     if (d.top_chars_saved?.length > 0) {
-      html += `<div class="detail-section"><div class="detail-section-head">Top Savings</div>`;
-      html += '<div class="detail-sub-grid">';
-      d.top_chars_saved.forEach(s => {
-        html += `<span class="from">${esc(s.original)}</span><span class="to">${esc(s.code || '(del)')}</span><span class="saved">-${s.chars_saved}</span>`;
-      });
+      html += `<div class="detail-section"><div class="detail-section-head">Top Savings</div><div class="detail-sub-grid">`;
+      d.top_chars_saved.forEach(s => { html += `<span class="from">${esc(s.original)}</span><span class="to">${esc(s.code || '(del)')}</span><span class="saved">-${s.chars_saved}</span>`; });
       html += '</div></div>';
     }
     if (d.phrase_subs?.length > 0) {
-      html += `<div class="detail-section"><div class="detail-section-head">Phrase Substitutions</div>`;
-      html += '<div class="detail-sub-grid">';
-      d.phrase_subs.forEach(([orig, code]) => {
-        html += `<span class="from">${esc(orig)}</span><span class="to">${esc(code)}</span><span class="saved"></span>`;
-      });
+      html += `<div class="detail-section"><div class="detail-section-head">Phrase Substitutions</div><div class="detail-sub-grid">`;
+      d.phrase_subs.forEach(([orig, code]) => { html += `<span class="from">${esc(orig)}</span><span class="to">${esc(code)}</span><span class="saved"></span>`; });
       html += '</div></div>';
     }
   }
 
-  if (l.type === 'compact') {
+  if (l.type === 'compact' || l.type === 'structural') {
     if (d.input_tokens != null) {
       html += `<div class="detail-section"><div class="detail-section-head">Token Analysis</div>`;
       html += `<div class="detail-kv"><span class="detail-k">Tokens</span><span class="detail-v">${d.input_tokens} in &rarr; ${d.output_tokens} out (${d.tokens_reduction >= 0 ? '-' : '+'}${Math.abs(d.tokens_reduction)})</span></div>`;
@@ -1558,19 +2552,13 @@ function renderCompletedLayerCard(idx, l) {
     if (d.symbols_introduced?.length > 0) {
       html += `<div class="detail-section"><div class="detail-section-head">Symbols Introduced</div><div>`;
       d.symbols_introduced.forEach(s => {
-        html += `<span class="sym-badge"><span class="sym">${esc(s.symbol)}</span><span class="meaning">${esc(s.meaning)}</span><span style="color:#fbbf24">x${s.count}</span></span>`;
+        html += `<span class="sym-badge"><span class="sym">${esc(s.symbol)}</span><span class="meaning">${esc(s.meaning)}</span><span style="color:var(--yellow)">x${s.count}</span></span>`;
       });
       html += '</div></div>';
     }
-    if (d.truncated_multiline) {
-      html += `<div class="detail-kv"><span class="detail-k">Note</span><span class="detail-v yellow">LLM output was multi-line; truncated to first line</span></div>`;
-    }
-    if (d.raw_llm_output) {
-      html += `<div class="detail-section"><div class="detail-section-head">Raw LLM Output</div><div class="detail-raw">${esc(d.raw_llm_output)}</div></div>`;
-    }
-    if (d.prompt_used) {
-      html += `<div class="detail-section"><div class="detail-section-head">Prompt Sent to LLM</div><div class="detail-prompt">${esc(d.prompt_used)}</div></div>`;
-    }
+    if (d.truncated_multiline) html += `<div class="detail-kv"><span class="detail-k">Note</span><span class="detail-v yellow">LLM output was multi-line; truncated to first line</span></div>`;
+    if (d.raw_llm_output) html += `<div class="detail-section"><div class="detail-section-head">Raw LLM Output</div><div class="detail-raw">${esc(d.raw_llm_output)}</div></div>`;
+    if (d.prompt_used) html += `<div class="detail-section"><div class="detail-section-head">Prompt Sent to LLM</div><div class="detail-prompt">${esc(d.prompt_used)}</div></div>`;
   }
 
   html += '</div>';
@@ -1579,36 +2567,63 @@ function renderCompletedLayerCard(idx, l) {
 
 function renderPipelineSummary(data) {
   const container = document.getElementById('resultLayers');
-
-  let html = '<div class="pipeline-summary"><div style="color:#555;font-size:8px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px">Pipeline Summary</div>';
-  html += `<div class="pipeline-step"><span class="pipe-chars">${data.original.length}c</span><span style="color:#888">Original input</span></div>`;
+  let html = '<div class="pipeline-summary"><div style="color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;font-weight:600">Pipeline Summary</div>';
+  html += `<div class="pipeline-step"><span class="pipe-chars">${data.original.length}c</span><span style="color:var(--text-secondary)">Original input</span></div>`;
   data.layers.forEach(l => {
     const delta = l.output_len - l.input_len;
     const deltaClass = delta < 0 ? 'neg' : (delta === 0 ? 'zero' : 'red');
     html += `<div class="pipeline-step">
-      <span class="pipe-arrow">></span>
-      <span class="pipe-type ${l.type}" style="background:${TYPE_BG[l.type] || '#1a1a24'};color:${TYPE_COLORS[l.type] || '#888'}">${l.type}</span>
+      <span class="pipe-arrow">&rsaquo;</span>
+      <span class="pipe-type ${l.type}" style="background:${TYPE_BG[l.type] || 'var(--bg-elevated)'};color:${TYPE_COLORS[l.type] || 'var(--text-secondary)'}">${l.type}</span>
       <span class="pipe-chars">${l.output_len}c</span>
       <span class="pipe-delta ${deltaClass}">${delta < 0 ? '' : '+'}${delta}c (${(l.compression * 100).toFixed(0)}%)</span>
-      <span style="color:#555;font-size:8px">${l.time_ms.toFixed(0)}ms</span>
+      <span style="color:var(--text-muted);font-size:10px">${l.time_ms.toFixed(0)}ms</span>
     </div>`;
   });
-  html += `<div class="pipeline-step" style="border-top:1px solid #1a1a24;padding-top:2px;margin-top:2px">
-    <span class="pipe-chars" style="color:#4ade80;font-weight:700">${data.final_encoded.length}c</span>
-    <span style="color:#4ade80">Final output</span>
-    <span style="color:#fbbf24;font-size:8px">${(data.total_compression * 100).toFixed(0)}% total compression in ${data.total_time_ms.toFixed(0)}ms</span>
+  html += `<div class="pipeline-step" style="border-top:1px solid var(--border);padding-top:4px;margin-top:4px">
+    <span class="pipe-chars" style="color:var(--accent);font-weight:700">${data.final_encoded.length}c</span>
+    <span style="color:var(--accent)">Final output</span>
+    <span style="color:var(--yellow);font-size:10px">${(data.total_compression * 100).toFixed(0)}% total in ${data.total_time_ms.toFixed(0)}ms</span>
   </div>`;
   html += '</div>';
-
   container.insertAdjacentHTML('beforeend', html);
 }
 
-// ===== PACKAGE RENDERING =====
+// ===== PIPELINE FLOW VISUALIZATION =====
+function buildPipelineFlow(configs, inputLen) {
+  const flow = document.getElementById('pipelineFlow');
+  flow.style.display = '';
+  const inner = document.getElementById('pipelineFlowInner');
+  let html = `<div class="pf-node done" id="pf-node-0">
+    <span class="pf-type" style="color:var(--text-muted)">INPUT</span>
+    <span class="pf-chars">${inputLen}</span>
+    <span class="pf-label">chars</span>
+  </div>`;
+  configs.forEach((cfg, i) => {
+    html += '<span class="pf-arrow" id="pf-arrow-' + (i+1) + '">&rarr;</span>';
+    const type = cfg.type;
+    html += `<div class="pf-node waiting" id="pf-node-${i+1}" style="border-color:${TYPE_COLORS[type] || 'var(--border)'}20">
+      <span class="pf-type" style="color:${TYPE_COLORS[type] || 'var(--text-muted)'}">${type.slice(0,4).toUpperCase()}</span>
+      <span class="pf-chars">--</span>
+      <span class="pf-label">chars</span>
+    </div>`;
+  });
+  inner.innerHTML = html;
+}
 
+function updatePipelineNode(idx, state, chars) {
+  const node = document.getElementById('pf-node-' + idx);
+  const arrow = document.getElementById('pf-arrow-' + idx);
+  if (!node) return;
+  node.className = 'pf-node ' + state;
+  if (chars != null) node.querySelector('.pf-chars').textContent = chars;
+  if (arrow) arrow.className = 'pf-arrow ' + state;
+}
+
+// ===== PACKAGE RENDERING =====
 function renderPackage(data) {
   const pkg = data.transmission_package;
   if (!pkg) return;
-
   document.getElementById('pkgBadge').textContent = pkg.manifest.encoded_length + ' chars';
 
   const m = pkg.manifest;
@@ -1619,18 +2634,15 @@ function renderPackage(data) {
   visual += '  version: <span class="val">' + pkg.reference.version + '</span>\n';
   visual += '  fingerprint: ' + esc(pkg.reference.fingerprint) + '\n\n';
   visual += '<span class="key">COMPRESSION:</span> <span class="val">' + (m.compression_ratio * 100).toFixed(0) + '%</span>';
-  visual += ' (' + m.original_length + ' > ' + m.encoded_length + ' chars)\n\n';
+  visual += ' (' + m.original_length + ' &rarr; ' + m.encoded_length + ' chars)\n\n';
   visual += '<span class="key">LAYERS:</span>\n';
   pkg.layers.forEach(l => {
     visual += '  L' + l.layer + ' <span class="type">[' + l.type + ']</span> ' + esc(l.model);
     visual += ' (' + (l.compression * 100).toFixed(0) + '%)';
-    if (l.decode_info?.substitution_log?.length > 0) {
-      visual += ' [' + l.decode_info.substitution_log.length + ' subs]';
-    }
+    if (l.decode_info?.substitution_log?.length > 0) visual += ' [' + l.decode_info.substitution_log.length + ' subs]';
     visual += '\n';
   });
   document.getElementById('pkgVisual').innerHTML = visual;
-
   document.getElementById('pkgJson').textContent = JSON.stringify(pkg, null, 2);
 
   let decode = '<span class="key">DECODE MAP</span>\n';
@@ -1638,15 +2650,15 @@ function renderPackage(data) {
   for (const l of [...pkg.layers].reverse()) {
     decode += '<span class="type">Layer ' + l.layer + ' [' + l.type + ']</span>\n';
     const di = l.decode_info || {};
-    if (l.type === 'reference') {
+    if (l.type === 'reference' || l.type === 'discover' || l.type === 'structural') {
       const subs = di.substitution_log || [];
       if (subs.length > 0) {
-        decode += '  Reverse these substitutions (word-by-word for vocab, full-text for phrases):\n';
+        decode += '  Reverse these substitutions:\n';
         subs.forEach(entry => {
           const stype = entry.length === 3 ? entry[0] : '?';
           const orig = entry.length === 3 ? entry[1] : entry[0];
           const code = entry.length === 3 ? entry[2] : entry[1];
-          decode += '    <span class="val">' + esc(code || '(removed)') + '</span> -> ' + esc(orig) + ' <span style="color:#555">[' + stype + ']</span>\n';
+          decode += '    <span class="val">' + esc(code || '(removed)') + '</span> &rarr; ' + esc(orig) + ' <span style="color:var(--text-muted)">[' + stype + ']</span>\n';
         });
       }
       decode += '  Reference: ' + esc(di.reference_name || '?') + ' v' + (di.reference_version || '?') + '\n';
@@ -1663,17 +2675,7 @@ function renderPackage(data) {
   document.getElementById('pkgDecode').innerHTML = decode;
 }
 
-function setPkgTab(tab) {
-  currentPkgTab = tab;
-  document.querySelectorAll('#pkgTabs .tab').forEach(t => t.classList.remove('active'));
-  document.querySelector(`#pkgTabs .tab[onclick*="${tab}"]`).classList.add('active');
-  document.getElementById('pkgVisual').style.display = tab === 'visual' ? '' : 'none';
-  document.getElementById('pkgJson').style.display = tab === 'json' ? '' : 'none';
-  document.getElementById('pkgDecode').style.display = tab === 'decode' ? '' : 'none';
-}
-
 // ===== TARGET & SUBMIT =====
-
 function setTarget(el, target) {
   currentTarget = target;
   document.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
@@ -1697,6 +2699,7 @@ function saveKey() {
   const key = document.getElementById('apiKey').value;
   if (key) localStorage.setItem('pfkey_' + currentTarget, key);
 }
+
 function loadSavedKeys() {
   document.getElementById('apiKey').value = localStorage.getItem('pfkey_' + currentTarget) || '';
 }
@@ -1710,7 +2713,6 @@ async function submitToLLM() {
 
   const model = document.getElementById('modelSelect').value;
   const mode = document.getElementById('submitMode').value;
-
   const btn = document.getElementById('submitBtn');
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>';
@@ -1737,6 +2739,7 @@ async function submitToLLM() {
     } else {
       respBox.textContent = data.response;
       document.getElementById('respBadge').textContent = currentTarget;
+      document.getElementById('respBadge').style.display = '';
       document.getElementById('respModel').textContent = model;
       document.getElementById('respModel').style.display = '';
       document.getElementById('respStats').style.display = '';
@@ -1753,30 +2756,76 @@ async function submitToLLM() {
   }
 }
 
-// ===== UTILITY =====
+// ===== EXPORT/IMPORT =====
+function exportPackageJSON() {
+  if (!chainResult?.transmission_package) return toast('No package to export');
+  const blob = new Blob([JSON.stringify(chainResult.transmission_package, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'prefrontal-package.json';
+  a.click();
+  toast('Package exported');
+}
 
+function exportCodebookJSON() {
+  if (!codebookData) return toast('No codebook loaded');
+  const blob = new Blob([JSON.stringify(codebookData, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'codebook.json';
+  a.click();
+  toast('Codebook exported');
+}
+
+async function importCodebookFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    const r = await fetch('/reference/import', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(data)
+    });
+    const result = await r.json();
+    if (result.ok) {
+      loadCodebook();
+      toast('Codebook imported: ' + (result.imported || 0) + ' entries');
+    } else {
+      toast('Import error: ' + (result.error || 'unknown'));
+    }
+  } catch(e) { toast('Import failed: ' + e.message); }
+  event.target.value = '';
+}
+
+// ===== UTILITY =====
 function clearAll() {
   chainResult = null;
   document.getElementById('inputText').value = '';
   document.getElementById('resultLayers').innerHTML = '';
   document.getElementById('resultsSection').style.display = 'none';
+  document.getElementById('emptyState').style.display = '';
   document.getElementById('submitSection').style.display = 'none';
   document.getElementById('processStatus').style.display = 'none';
   document.getElementById('liveTextSection').style.display = 'none';
   document.getElementById('compGauge').style.display = 'none';
   document.getElementById('statsRow').style.display = 'none';
   document.getElementById('decodedSection').style.display = 'none';
-  document.getElementById('pkgVisual').innerHTML = '<span style="color:#444;font-style:italic">Run compression to see the transmission package...</span>';
+  document.getElementById('pkgVisual').innerHTML = '<span style="color:var(--text-muted);font-style:italic">Run compression to see the transmission package...</span>';
   document.getElementById('pkgJson').textContent = '';
   document.getElementById('pkgDecode').textContent = '';
   document.getElementById('pkgBadge').textContent = '--';
   document.getElementById('responseBox').className = 'response-box empty';
-  document.getElementById('responseBox').textContent = 'Compress a prompt and submit to see the LLM response here.';
+  document.getElementById('responseBox').textContent = 'Compress text and submit to an LLM to see the response here';
   document.getElementById('respStats').style.display = 'none';
+  document.getElementById('respBadge').style.display = 'none';
+  document.getElementById('respModel').style.display = 'none';
   document.getElementById('pipelineFlow').style.display = 'none';
   document.getElementById('pipelineFlowInner').innerHTML = '';
   document.getElementById('donutFill').style.strokeDashoffset = '87.96';
   document.getElementById('donutLabel').textContent = '0%';
+  setCenterView('results');
 }
 
 function toggleDetail(id) {
@@ -1795,34 +2844,47 @@ function toast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 2500);
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ===== DIFF GENERATION =====
+function generateDiffHTML(before, after) {
+  if (!before || !after) return '';
+  const bWords = before.split(/(\s+)/);
+  const aWords = after.split(/(\s+)/);
+  let html = '';
+  const maxLen = Math.max(bWords.length, aWords.length);
+  // Simple word-level diff
+  const bSet = new Set(bWords.map(w => w.trim()).filter(Boolean));
+  const aSet = new Set(aWords.map(w => w.trim()).filter(Boolean));
+  bWords.forEach(w => {
+    if (!w.trim()) { html += w; return; }
+    if (!aSet.has(w.trim())) html += '<span class="diff-del">' + esc(w) + '</span>';
+    else html += '<span class="diff-same">' + esc(w) + '</span>';
+  });
+  html += '\n---\n';
+  aWords.forEach(w => {
+    if (!w.trim()) { html += w; return; }
+    if (!bSet.has(w.trim())) html += '<span class="diff-add">' + esc(w) + '</span>';
+    else html += '<span class="diff-same">' + esc(w) + '</span>';
+  });
+  return html;
+}
+
+function generateSubPills(subs) {
+  return subs.map(entry => {
+    const orig = entry.length === 3 ? entry[1] : entry[0];
+    const code = entry.length === 3 ? entry[2] : entry[1];
+    return `<span class="sub-pill"><span class="sp-from">${esc(orig)}</span><span class="sp-arrow">&rarr;</span><span class="sp-to">${esc(code || '(del)')}</span></span>`;
+  }).join('');
 }
 
 // ===== KEYBOARD SHORTCUTS =====
-
 document.addEventListener('keydown', e => {
-  // Ctrl+Enter: Compress
-  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-    e.preventDefault();
-    runChainStream();
-    return;
-  }
-  // Ctrl+Shift+T: Train codebook
-  if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'T' || e.key === 't')) {
-    e.preventDefault();
-    trainRef();
-    return;
-  }
-  // Ctrl+D: Toggle decode map view
-  if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D')) {
-    e.preventDefault();
-    setPkgTab('decode');
-    return;
-  }
-  // ?: Toggle keyboard help (only if not in an input/textarea)
-  if (e.key === '?' && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) {
-    toggleKbdHelp();
-  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); runChainStream(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'T' || e.key === 't')) { e.preventDefault(); trainRef(); return; }
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D')) { e.preventDefault(); setCenterView('decode'); return; }
+  if (e.key === '?' && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) toggleKbdHelp();
 });
 
 function toggleKbdHelp() {
@@ -1830,20 +2892,16 @@ function toggleKbdHelp() {
   document.getElementById('kbdHelp').classList.toggle('show', kbdHelpVisible);
 }
 
-// ===== CODEBOOK EDITING (inline) =====
-
+// ===== CODEBOOK EDITING =====
 function startEditRow(tr, word, code, type) {
-  // Prevent double-editing
   if (tr.querySelector('input')) return;
   const cells = tr.children;
   const origWord = word;
   const origCode = code;
-
   cells[0].classList.add('editing');
   cells[0].innerHTML = `<input type="text" value="${esc(word)}" class="cb-edit-word">`;
   cells[1].classList.add('editing');
   cells[1].innerHTML = `<input type="text" value="${esc(code)}" class="cb-edit-code">`;
-
   const wordInput = cells[0].querySelector('input');
   const codeInput = cells[1].querySelector('input');
   wordInput.focus();
@@ -1852,31 +2910,17 @@ function startEditRow(tr, word, code, type) {
   function commitEdit() {
     const newWord = wordInput.value.trim();
     const newCode = codeInput.value.trim();
-    if (!newWord || !newCode) {
-      loadCodebook();
-      return;
-    }
-    if (newWord === origWord && newCode === origCode) {
-      loadCodebook();
-      return;
-    }
+    if (!newWord || !newCode) { loadCodebook(); return; }
+    if (newWord === origWord && newCode === origCode) { loadCodebook(); return; }
     saveEntry(newWord, newCode, type, origWord);
   }
-
-  function cancelEdit() {
-    loadCodebook();
-  }
-
   [wordInput, codeInput].forEach(inp => {
     inp.addEventListener('keydown', e => {
       if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
-      if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
+      if (e.key === 'Escape') { e.preventDefault(); loadCodebook(); }
     });
     inp.addEventListener('blur', () => {
-      // Small delay to allow clicking the other field
-      setTimeout(() => {
-        if (!tr.contains(document.activeElement)) commitEdit();
-      }, 150);
+      setTimeout(() => { if (!tr.contains(document.activeElement)) commitEdit(); }, 150);
     });
   });
 }
@@ -1895,14 +2939,35 @@ async function saveEntry(word, code, type, oldWord) {
       editedEntries.add(word.toLowerCase());
       toast('Updated: ' + word + ' = ' + code);
       loadCodebook();
-    } else {
-      toast('Error: ' + (d.error || 'unknown'));
-    }
-  } catch(e) { toast('Save failed: ' + e.message); }
+    } else { toast('Error: ' + (d.error || 'unknown')); }
+  } catch(e) { toast('Save failed'); loadCodebook(); }
+}
+
+async function addEntry() {
+  const word = document.getElementById('cbNewWord').value.trim();
+  const code = document.getElementById('cbNewCode').value.trim();
+  const type = document.getElementById('cbNewType').value;
+  if (!word || !code) return toast('Fill in word and code');
+  try {
+    const r = await fetch('/reference/entry', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({word, code, type})
+    });
+    const d = await r.json();
+    if (d.ok) {
+      newEntries.add(word.toLowerCase());
+      document.getElementById('cbNewWord').value = '';
+      document.getElementById('cbNewCode').value = '';
+      hideAddEntry();
+      loadCodebook();
+      toast('Added: ' + word + ' = ' + code);
+    } else { toast('Error: ' + (d.error || 'unknown')); }
+  } catch(e) { toast('Add failed'); }
 }
 
 async function deleteEntry(word) {
-  if (!confirm('Delete entry "' + word + '"?')) return;
+  if (!confirm('Delete "' + word + '"?')) return;
   try {
     const r = await fetch('/reference/entry', {
       method: 'DELETE',
@@ -1910,203 +2975,9 @@ async function deleteEntry(word) {
       body: JSON.stringify({word})
     });
     const d = await r.json();
-    if (d.ok) {
-      toast('Deleted: ' + word);
-      loadCodebook();
-    } else {
-      toast('Error: ' + (d.error || 'unknown'));
-    }
-  } catch(e) { toast('Delete failed: ' + e.message); }
-}
-
-function showAddEntry() {
-  document.getElementById('cbAddRow').style.display = 'flex';
-  document.getElementById('cbNewWord').focus();
-}
-function hideAddEntry() {
-  document.getElementById('cbAddRow').style.display = 'none';
-  document.getElementById('cbNewWord').value = '';
-  document.getElementById('cbNewCode').value = '';
-}
-
-async function addEntry() {
-  const word = document.getElementById('cbNewWord').value.trim();
-  const code = document.getElementById('cbNewCode').value.trim();
-  const type = document.getElementById('cbNewType').value;
-  if (!word || !code) return toast('Enter both word and code');
-  try {
-    const r = await fetch('/reference/entry', {
-      method: 'PUT',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({word, code, type})
-    });
-    const d = await r.json();
-    if (d.ok) {
-      newEntries.add(word.toLowerCase());
-      toast('Added: ' + word + ' = ' + code);
-      hideAddEntry();
-      loadCodebook();
-    } else {
-      toast('Error: ' + (d.error || 'unknown'));
-    }
-  } catch(e) { toast('Add failed: ' + e.message); }
-}
-
-// ===== EXPORT / IMPORT =====
-
-function exportPackageJSON() {
-  if (!chainResult || !chainResult.transmission_package) return toast('No package to export');
-  const blob = new Blob([JSON.stringify(chainResult.transmission_package, null, 2)], {type:'application/json'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'transmission-package.json';
-  a.click();
-  URL.revokeObjectURL(url);
-  toast('Package exported');
-}
-
-function exportCodebookJSON() {
-  if (!codebookData) return toast('No codebook loaded');
-  const exportData = {
-    name: codebookData.name,
-    version: codebookData.version,
-    vocabulary: codebookData.vocabulary,
-    phrases: codebookData.phrases,
-    learned: codebookData.learned || {},
-  };
-  const blob = new Blob([JSON.stringify(exportData, null, 2)], {type:'application/json'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'codebook-' + (codebookData.name || 'default') + '.json';
-  a.click();
-  URL.revokeObjectURL(url);
-  toast('Codebook exported');
-}
-
-async function importCodebookFile(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-  try {
-    const text = await file.text();
-    const data = JSON.parse(text);
-    const r = await fetch('/reference/import', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(data)
-    });
-    const d = await r.json();
-    if (d.ok) {
-      toast('Imported ' + d.imported + ' entries');
-      loadCodebook();
-    } else {
-      toast('Import error: ' + (d.error || 'unknown'));
-    }
-  } catch(e) { toast('Import failed: ' + e.message); }
-  event.target.value = ''; // reset file input
-}
-
-// ===== PIPELINE FLOW VISUALIZATION =====
-
-function buildPipelineFlow(configs, inputLen) {
-  const container = document.getElementById('pipelineFlowInner');
-  const flowDiv = document.getElementById('pipelineFlow');
-  flowDiv.style.display = '';
-
-  let html = '';
-  // Input node
-  html += `<div class="pf-node done" id="pf-node-0" style="border-color:#1a3a24">
-    <span class="pf-type" style="color:#888">INPUT</span>
-    <span class="pf-chars" id="pf-chars-0">${inputLen}</span>
-    <span class="pf-label">chars</span>
-  </div>`;
-
-  configs.forEach((cfg, i) => {
-    const type = cfg.type || 'distill';
-    const color = TYPE_COLORS[type] || '#888';
-    const bg = TYPE_BG[type] || '#1a1a24';
-    html += `<span class="pf-arrow waiting" id="pf-arrow-${i}">&rarr;</span>`;
-    html += `<div class="pf-node waiting" id="pf-node-${i+1}" style="border-color:${bg};background:${bg}">
-      <span class="pf-type" style="color:${color}">${type}</span>
-      <span class="pf-chars" id="pf-chars-${i+1}">...</span>
-      <span class="pf-label">chars</span>
-    </div>`;
-  });
-
-  container.innerHTML = html;
-}
-
-function updatePipelineNode(idx, state, chars) {
-  const node = document.getElementById('pf-node-' + idx);
-  const arrow = document.getElementById('pf-arrow-' + (idx - 1));
-  if (!node) return;
-
-  node.classList.remove('waiting', 'active', 'done');
-  node.classList.add(state);
-  if (chars != null) {
-    document.getElementById('pf-chars-' + idx).textContent = chars;
-  }
-
-  if (arrow) {
-    arrow.classList.remove('waiting', 'active', 'done');
-    arrow.classList.add(state);
-  }
-}
-
-// ===== DIFF VIEW GENERATION =====
-
-function generateDiffHTML(inputText, outputText) {
-  const inWords = inputText.split(/(\s+)/);
-  const outWords = outputText.split(/(\s+)/);
-
-  // Simple word-level diff using LCS approach
-  const inTokens = inWords.filter(w => w.trim());
-  const outTokens = outWords.filter(w => w.trim());
-
-  // Build LCS table
-  const m = inTokens.length, n = outTokens.length;
-  if (m > 200 || n > 200) {
-    // Fallback for very long texts
-    return '<span class="diff-del">' + esc(inputText) + '</span>\n<span class="diff-add">' + esc(outputText) + '</span>';
-  }
-  const dp = Array.from({length:m+1}, () => new Array(n+1).fill(0));
-  for (let i = 1; i <= m; i++)
-    for (let j = 1; j <= n; j++)
-      dp[i][j] = inTokens[i-1].toLowerCase() === outTokens[j-1].toLowerCase()
-        ? dp[i-1][j-1] + 1
-        : Math.max(dp[i-1][j], dp[i][j-1]);
-
-  // Backtrack
-  let html = '';
-  let i = m, j = n;
-  const parts = [];
-  while (i > 0 || j > 0) {
-    if (i > 0 && j > 0 && inTokens[i-1].toLowerCase() === outTokens[j-1].toLowerCase()) {
-      parts.unshift({type:'same', text:outTokens[j-1]});
-      i--; j--;
-    } else if (j > 0 && (i === 0 || dp[i][j-1] >= dp[i-1][j])) {
-      parts.unshift({type:'add', text:outTokens[j-1]});
-      j--;
-    } else {
-      parts.unshift({type:'del', text:inTokens[i-1]});
-      i--;
-    }
-  }
-
-  return parts.map(p => {
-    if (p.type === 'del') return '<span class="diff-del">' + esc(p.text) + '</span>';
-    if (p.type === 'add') return '<span class="diff-add">' + esc(p.text) + '</span>';
-    return '<span class="diff-same">' + esc(p.text) + '</span>';
-  }).join(' ');
-}
-
-function generateSubPills(subs) {
-  return subs.map(entry => {
-    const orig = entry.length === 3 ? entry[1] : entry[0];
-    const code = entry.length === 3 ? entry[2] : entry[1];
-    return `<span class="sub-pill"><span class="sp-from">${esc(orig)}</span><span class="sp-arrow">&rarr;</span><span class="sp-to">${esc(code || '(del)')}</span></span>`;
-  }).join('');
+    if (d.ok) { loadCodebook(); toast('Deleted: ' + word); }
+    else { toast('Error: ' + (d.error || 'unknown')); }
+  } catch(e) { toast('Delete failed'); }
 }
 </script>
 </body>
