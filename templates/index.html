@@ -390,7 +390,7 @@ select:focus, input:focus {
 }
 .layer-num.discover, .layer-num.distill { background: var(--accent-bg); color: var(--accent); }
 .layer-num.reference { background: var(--purple-bg); color: var(--purple); }
-.layer-num.structural, .layer-num.compact { background: var(--blue-bg); color: var(--blue); }
+.layer-num.structural, .layer-num.compact, .layer-num.meta2 { background: var(--blue-bg); color: var(--blue); }
 .type-tag {
   font-size: 10px;
   padding: 2px 8px;
@@ -401,7 +401,7 @@ select:focus, input:focus {
 }
 .type-tag.discover, .type-tag.distill { background: var(--accent-bg); color: var(--accent); }
 .type-tag.reference { background: var(--purple-bg); color: var(--purple); }
-.type-tag.structural, .type-tag.compact { background: var(--blue-bg); color: var(--blue); }
+.type-tag.structural, .type-tag.compact, .type-tag.meta2 { background: var(--blue-bg); color: var(--blue); }
 .layer-cfg-head .remove-btn {
   margin-left: auto;
   color: var(--text-muted);
@@ -1463,7 +1463,7 @@ select:focus, input:focus {
         <div class="layer-actions">
           <button class="btn sm" onclick="addLayer('discover')">+ Discover</button>
           <button class="btn sm" onclick="addLayer('reference')">+ Reference</button>
-          <button class="btn sm" onclick="addLayer('structural')">+ Structural</button>
+          <button class="btn sm" onclick="addLayer('meta2')">+ Meta²</button>
           <button class="btn sm" style="border-color:var(--accent-dim);color:var(--accent)" onclick="addDefaultChain()">D+R+S</button>
           <span class="sep"></span>
           <button class="btn xs" onclick="clearLayers()">Clear</button>
@@ -1588,7 +1588,7 @@ select:focus, input:focus {
           <div class="es-desc">Configure your compression pipeline and enter text to begin.</div>
           <div class="es-steps">
             <div class="es-step"><span class="step-num">1</span> Enter text in the left panel</div>
-            <div class="es-step"><span class="step-num">2</span> Configure layers (D+R+S recommended)</div>
+            <div class="es-step"><span class="step-num">2</span> Configure layers (Discover + Meta + Meta² recommended)</div>
             <div class="es-step"><span class="step-num">3</span> Click Compress or press Ctrl+Enter</div>
           </div>
         </div>
@@ -1765,8 +1765,8 @@ let waveAnimations = {};
 let layerElapsedTimers = {};
 let layerStartTimes = {};
 
-const TYPE_COLORS = {discover:'#4ade80', distill:'#4ade80', reference:'#a78bfa', structural:'#60a5fa', compact:'#60a5fa'};
-const TYPE_BG = {discover:'#0d2818', distill:'#0d2818', reference:'#1a1830', structural:'#1a2030', compact:'#1a2030'};
+const TYPE_COLORS = {discover:'#4ade80', distill:'#4ade80', reference:'#a78bfa', meta2:'#60a5fa', structural:'#60a5fa', compact:'#60a5fa'};
+const TYPE_BG = {discover:'#0d2818', distill:'#0d2818', reference:'#1a1830', meta2:'#1a2030', structural:'#1a2030', compact:'#1a2030'};
 
 const COMMERCIAL_MODELS = {
   claude: [
@@ -2056,12 +2056,12 @@ function addLayer(type, modelName, provider) {
   div.className = 'layer-cfg';
   div.dataset.type = type;
 
-  const needsModel = type !== 'reference';
+  const needsModel = (type !== 'reference');
   const prov = provider || 'ollama';
 
   let row1 = `<div class="layer-cfg-head">
     <span class="layer-num ${type}">${idx}</span>
-    <span class="type-tag ${type}">${type.toUpperCase()}</span>
+    <span class="type-tag ${type}">${type === 'meta2' ? 'META²' : type.toUpperCase()}</span>
     ${needsModel ? '<select class="layer-model-select" style="flex:1"></select>' : '<span style="flex:1;font-size:11px;color:var(--purple)">Uses shared reference file</span>'}
     <button class="remove-btn" onclick="removeLayer(this)">&times;</button>
   </div>`;
@@ -2117,11 +2117,11 @@ function addDefaultChain() {
     const m2 = avail.length > 1 ? avail[1] : (avail[0] || 'llama3.2:1b');
     addLayer('discover', m1, 'ollama');
     addLayer('reference');
-    addLayer('structural', m2, 'ollama');
+    addLayer('meta2', m2, 'ollama');
   } else {
     addLayer('discover', 'claude-sonnet-4-20250514', 'claude');
     addLayer('reference');
-    addLayer('structural', 'claude-sonnet-4-20250514', 'claude');
+    addLayer('meta2', 'claude-sonnet-4-20250514', 'claude');
   }
 }
 
@@ -2316,7 +2316,7 @@ function buildPlaceholderCards(configs, text) {
     html += `<div class="result-layer layer-waiting" id="layer-card-${i+1}">
       <div class="result-layer-head">
         <span class="layer-num ${type}">${i+1}</span>
-        <span class="type-tag ${type}">${type.toUpperCase()}</span>
+        <span class="type-tag ${type}">${type === 'meta2' ? 'META²' : type.toUpperCase()}</span>
         <span class="model-tag">${esc(displayModel)}</span>
         ${provider !== 'ollama' && type !== 'reference' ? '<span class="provider-badge ' + provider + '">' + provider + '</span>' : ''}
         <span class="meta"><span style="color:var(--text-muted)">waiting...</span></span>
@@ -2364,6 +2364,7 @@ function handleStreamEvent(event, configs) {
         <span>Words: <span class="pi-val">${event.input_words}</span></span>
         ${event.type === 'discover' || event.type === 'distill' ? '<span>Strategy: <span class="pi-val">LLM analysis + codebook learning + deterministic encoding</span></span>' : ''}
         ${event.type === 'reference' ? '<span>Strategy: <span class="pi-val">Deterministic codebook substitution (fully reversible)</span></span>' : ''}
+        ${event.type === 'meta2' ? '<span>Strategy: <span class="pi-val">LLM meta²-pattern analysis + hierarchical pattern learning + deterministic encoding</span></span>' : ''}
         ${event.type === 'structural' || event.type === 'compact' ? '<span>Strategy: <span class="pi-val">LLM structural analysis + shortcut learning + deterministic encoding</span></span>' : ''}
       </div>`;
     startWaveform(idx, event.type);
@@ -2470,7 +2471,7 @@ function renderCompletedLayerCard(idx, l) {
   html += `<div class="result-layer-input"><span class="input-label">in: </span>${esc(l.input)}</div>`;
   html += `<div class="result-layer-body">${esc(l.output)}</div>`;
 
-  if ((l.type === 'reference' || l.type === 'discover' || l.type === 'structural') && subs.length > 0) {
+  if ((l.type === 'reference' || l.type === 'discover' || l.type === 'structural' || l.type === 'meta2') && subs.length > 0) {
     html += '<div class="result-layer-subs">';
     const displaySubs = subs.slice(0, 20);
     html += generateSubPills(displaySubs);
@@ -2539,6 +2540,31 @@ function renderCompletedLayerCard(idx, l) {
     if (d.phrase_subs?.length > 0) {
       html += `<div class="detail-section"><div class="detail-section-head">Phrase Substitutions</div><div class="detail-sub-grid">`;
       d.phrase_subs.forEach(([orig, code]) => { html += `<span class="from">${esc(orig)}</span><span class="to">${esc(code)}</span><span class="saved"></span>`; });
+      html += '</div></div>';
+    }
+  }
+
+  if (l.type === 'meta2') {
+    if (d.total_meta2_patterns != null) {
+      html += `<div class="detail-section"><div class="detail-section-head">Meta² Patterns (Patterns of Patterns)</div>`;
+      html += `<div class="detail-kv"><span class="detail-k">Total meta² patterns</span><span class="detail-v">${d.total_meta2_patterns}</span></div>`;
+      html += `<div class="detail-kv"><span class="detail-k">Candidates found</span><span class="detail-v">${d.meta2_candidates_found || 0}</span></div>`;
+      html += `<div class="detail-kv"><span class="detail-k">Chars saved</span><span class="detail-v">${d.chars_saved || 0}</span></div>`;
+      html += '</div>';
+    }
+    if (d.top_meta2_candidates?.length > 0) {
+      html += `<div class="detail-section"><div class="detail-section-head">Top Meta² Candidates</div><div class="detail-sub-grid">`;
+      d.top_meta2_candidates.forEach(c => { html += `<span class="from">${esc(c.sequence)}</span><span class="to">x${c.count}</span><span class="saved"></span>`; });
+      html += '</div></div>';
+    }
+    if (d.new_meta2_learned?.length > 0) {
+      html += `<div class="detail-section"><div class="detail-section-head">New Meta² Patterns Learned</div><div class="detail-sub-grid">`;
+      d.new_meta2_learned.forEach(m => { html += `<span class="from">${esc(m.sequence)}</span><span class="to">${esc(m.meta2_code)}</span><span class="saved">-${m.chars_saved}ch</span>`; });
+      html += '</div></div>';
+    }
+    if (d.existing_meta2_patterns && Object.keys(d.existing_meta2_patterns).length > 0) {
+      html += `<div class="detail-section"><div class="detail-section-head">Existing Meta² Patterns</div><div class="detail-sub-grid">`;
+      Object.entries(d.existing_meta2_patterns).forEach(([seq, code]) => { html += `<span class="from">${esc(seq)}</span><span class="to">${esc(code)}</span><span class="saved"></span>`; });
       html += '</div></div>';
     }
   }
@@ -2650,7 +2676,7 @@ function renderPackage(data) {
   for (const l of [...pkg.layers].reverse()) {
     decode += '<span class="type">Layer ' + l.layer + ' [' + l.type + ']</span>\n';
     const di = l.decode_info || {};
-    if (l.type === 'reference' || l.type === 'discover' || l.type === 'structural') {
+    if (l.type === 'reference' || l.type === 'discover' || l.type === 'structural' || l.type === 'meta2') {
       const subs = di.substitution_log || [];
       if (subs.length > 0) {
         decode += '  Reverse these substitutions:\n';

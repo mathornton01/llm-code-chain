@@ -1,18 +1,21 @@
 """
-Prefrontal Compressor v5 -- Fully Reversible Multi-Level Compression Chain
+Prefrontal Compressor v6 -- Fully Reversible Hierarchical Compression Chain
 
 Three layers, each working at a DIFFERENT level of abstraction:
   1. DISCOVER -- LLM identifies compressible patterns, learns new codebook
-               entries, then codebook encodes words/phrases deterministically
+               entries, then codebook encodes words/phrases deterministically.
+               Level: raw text -> codes
   2. META-PATTERN -- Analyzes the coded output to find recurring CODE
                SEQUENCES (bigrams/trigrams of codes) and creates higher-order
-               meta-codes (e.g. "= v imp" -> "M.1"). Patterns of patterns.
-  3. STRUCTURAL -- Packs the coded text tighter: abbreviates remaining
-               uncoded words, removes spaces around operators, collapses
-               domain-prefix spacing.
+               meta-codes (e.g. "= v imp" -> "M.1"). Patterns of codes.
+               Level: codes -> meta-codes
+  3. META² -- Analyzes meta-encoded output to find recurring SEQUENCES OF
+               META-CODES and higher-order patterns. Creates meta²-codes
+               (e.g. "M.1 M.3" -> "MM.1"). Patterns of patterns.
+               Level: meta-codes -> meta²-codes
 
-Key design: each layer produces genuinely different compression because
-they work at different granularity levels (words -> code sequences -> structure).
+Key design: fractal/hierarchical compression. Each layer finds patterns at
+the next level up. Words -> code patterns -> meta-pattern patterns.
 All layers are fully reversible via substitution logs.
 
 Endpoints:
@@ -245,7 +248,14 @@ JSON:"""
                 continue
             if len(code) >= len(orig):
                 continue
+            # Skip short words (<=3 chars) -- they cause substring pollution
+            if len(orig) <= 3:
+                continue
+            # Skip common English words that are already in vocabulary
             if orig in active_ref.vocabulary or orig in active_ref.phrases or orig in active_ref.learned:
+                continue
+            # Code must save at least 2 chars to be worth it
+            if len(orig) - len(code) < 2:
                 continue
             if code in all_codes:
                 # Try appending a counter to avoid collision
@@ -448,6 +458,14 @@ JSON:"""
     if new_meta_learned:
         encoded, meta_subs = ref.encode_meta(text)
 
+    # Step 5: Structural packing -- always produces compression
+    packed, pack_subs = ref.pack_structural(encoded)
+    if len(packed) < len(encoded):
+        encoded = packed
+        # Add pack subs to the log
+        for ps in pack_subs:
+            meta_subs.append(ps)
+
     elapsed = (time.time() - start) * 1000
 
     # Calculate savings
@@ -472,6 +490,7 @@ JSON:"""
             "reference_version": ref.version,
             "reference_fingerprint": ref.get_fingerprint(),
             "substitution_log": meta_subs,
+            "has_structural_packing": bool(pack_subs),
         },
         "detail": {
             "description": "Meta-pattern encoding: finds recurring CODE SEQUENCES in already-encoded text and combines them into higher-order meta-codes. This is 'patterns of patterns'.",
@@ -493,159 +512,230 @@ JSON:"""
     }
 
 
-def layer_compact(text: str, model: str, layer_num: int,
-                   provider: str = "ollama", api_key: str = "",
-                   temperature: float = 0.25) -> dict:
+def layer_meta2(text: str, model: str, layer_num: int,
+                provider: str = "ollama", api_key: str = "",
+                temperature: float = 0.3) -> dict:
     """
-    STRUCTURAL PACKING layer: Deterministic compression of coded text.
+    OPTIMIZE layer: Final compression pass combining three strategies:
 
-    After Layer 1 (word/phrase encoding) and Layer 2 (meta-pattern encoding),
-    this layer applies structural rules to pack the output tighter:
-    - Remove spaces around operator codes
-    - Collapse domain-prefix spacing
-    - Find remaining uncoded words and abbreviate them
+    1. Meta²-patterns: Apply/learn patterns of meta-patterns (MM-codes)
+    2. Structural packing: Remove redundant whitespace, compact operators
+    3. Token optimization: LLM suggests final abbreviations for remaining
+       long tokens that survived layers 1 and 2
 
-    Optionally uses LLM to find remaining compressible words.
-    This is FULLY REVERSIBLE via the substitution log.
+    All changes are logged for full reversibility.
     """
     global active_ref
     start = time.time()
+    all_subs = []  # combined substitution log
 
-    # Step 1: Find remaining uncoded words (words not in any codebook section)
-    words = text.split()
-    uncoded_words = []
-    all_known = set()
-    all_known.update(active_ref.vocabulary.keys())
-    all_known.update(active_ref.vocabulary.values())
-    all_known.update(active_ref.learned.keys())
-    all_known.update(active_ref.learned.values())
-    all_known.update(active_ref.meta_patterns.values())
-    # Add phrase codes
-    all_known.update(active_ref.phrases.values())
+    # === Phase 1: Meta²-patterns ===
+    encoded, meta2_subs = active_ref.encode_meta2(text)
+    all_subs.extend(meta2_subs)
 
-    for w in words:
-        clean = w.strip(".,!?;:()[]{}\"'").lower()
-        if (clean not in all_known
-            and len(clean) > 3
-            and clean.isalpha()):
-            uncoded_words.append(clean)
+    # Find new meta² candidates
+    meta2_candidates = active_ref.find_meta2_sequences(encoded)
+    new_meta2_learned = []
 
-    # Step 2: If LLM available, ask for abbreviations of remaining uncoded words
-    new_entries_learned = []
+    if meta2_candidates:
+        # Auto-learn top candidates (no LLM needed for pattern matching)
+        for seq, count in meta2_candidates[:5]:
+            if seq in active_ref.meta2_patterns:
+                continue
+            if " " not in seq:
+                continue
+            savings = (len(seq) - 4) * count
+            if savings >= 2:
+                meta2_code = active_ref.next_meta2_code()
+                active_ref.learn_meta2(seq, meta2_code)
+                new_meta2_learned.append({
+                    "sequence": seq, "meta2_code": meta2_code,
+                    "chars_saved": len(seq) - len(meta2_code),
+                })
+
+        # Re-apply if we learned new ones
+        if new_meta2_learned:
+            encoded, meta2_subs = active_ref.encode_meta2(text)
+            all_subs = list(meta2_subs)  # reset subs to freshly applied
+
+    # === Phase 2: Structural packing ===
+    packed, pack_subs = active_ref.pack_structural(encoded)
+    if len(packed) < len(encoded):
+        encoded = packed
+        all_subs.extend(pack_subs)
+
+    # === Phase 3: Deterministic token shortening ===
+    # Shorten remaining long tokens using vowel removal + suffix rules
+    tokens = encoded.split()
+    shortened_tokens = []
+    deterministic_abbreviations = []
+    # Codes we shouldn't touch
+    all_existing_codes = (set(active_ref.vocabulary.values()) |
+                          set(active_ref.phrases.values()) |
+                          set(active_ref.learned.values()) |
+                          set(active_ref.meta_patterns.values()) |
+                          set(active_ref.meta2_patterns.values()))
+    code_prefixes = ("M.", "MM.", "a.", "c.", "m.", "b.", "w.", "d.", "ds.", "s.", "p.")
+
+    for tok in tokens:
+        # Skip codes, meta-codes, short tokens
+        clean_tok = tok.rstrip(".,!?;:")
+        trailing_punct = tok[len(clean_tok):]
+        if (len(clean_tok) <= 4 or
+            clean_tok.startswith(code_prefixes) or
+            clean_tok in all_existing_codes or
+            not clean_tok.isalpha()):
+            shortened_tokens.append(tok)
+            continue
+
+        # Vowel removal for words > 4 chars: "models" -> "mdls", "focus" -> "fcs"
+        consonants = clean_tok[0]  # keep first char always
+        for c in clean_tok[1:]:
+            if c not in "aeiou":
+                consonants += c
+        # Use if it saves at least 1 char and result >= 2 chars
+        if len(consonants) >= 2 and len(consonants) < len(clean_tok):
+            short = consonants + trailing_punct
+            shortened_tokens.append(short)
+            all_subs.append(["shorten", clean_tok, consonants])
+            deterministic_abbreviations.append({
+                "original": clean_tok, "code": consonants,
+                "chars_saved": len(clean_tok) - len(consonants)
+            })
+        else:
+            shortened_tokens.append(tok)
+
+    if deterministic_abbreviations:
+        encoded = " ".join(shortened_tokens)
+
+    # === Phase 4: Token optimization via LLM ===
     llm_raw = None
     llm_error = None
+    token_optimizations = []
 
-    if uncoded_words and model:
-        from collections import Counter
-        word_freq = Counter(uncoded_words)
-        frequent = [w for w, c in word_freq.most_common(15)]
+    if model:
+        # Find remaining long tokens (>4 chars) that could be abbreviated
+        tokens = encoded.split()
+        long_tokens = [t for t in tokens if len(t) > 4
+                       and not t.startswith("M.") and not t.startswith("MM.")
+                       and not t.startswith("a.") and not t.startswith("c.")
+                       and not t.startswith("m.") and not t.startswith("b.")
+                       and not t.startswith("w.") and not t.startswith("d.")
+                       and not t.startswith("ds.") and not t.startswith("s.")
+                       and not t.startswith("p.")]
 
-        prompt = f"""You are a text abbreviator. These words survived two rounds of encoding and need short abbreviations.
+        if long_tokens:
+            unique_long = list(set(long_tokens))[:15]
+            tokens_str = ", ".join(f'"{t}"' for t in unique_long)
 
-WORDS TO ABBREVIATE: {', '.join(frequent)}
+            prompt = f"""You are a text compression optimizer. The text below has already been through two compression passes. Your job: suggest final abbreviations for remaining long tokens.
+
+ALREADY-COMPRESSED TEXT: {encoded}
+
+LONG TOKENS TO ABBREVIATE: {tokens_str}
 
 RULES:
-1. Use consonant-based abbreviations: "learning" -> "lrn", "algorithm" -> "alg"
-2. Each abbreviation must be shorter than the original (save at least 2 chars)
-3. Must be unambiguous and readable
-4. Skip words shorter than 4 characters
+1. Each abbreviation must be shorter than the original (save at least 2 chars)
+2. Use consonant-heavy abbreviations: "learning" -> "lrn", "network" -> "ntwk"
+3. Abbreviations must be unambiguous in context
+4. Skip tokens that are already short codes or domain prefixes
+5. Only suggest tokens that appear in the text above
 
-Return ONLY a JSON array. No explanation.
-Format: [{{"original": "word", "code": "abbrev"}}, ...]
-If nothing to abbreviate, return: []
+Return ONLY a JSON array. No explanation, no markdown.
+Format: [{{"original": "long_token", "code": "short"}}]
+If nothing worth abbreviating, return: []
 JSON:"""
 
-        try:
-            raw = generate_text(provider, model, prompt, max_tokens=256,
-                                temperature=temperature, api_key=api_key)
-            suggestions = _parse_llm_suggestions(raw)
+            try:
+                raw = generate_text(provider, model, prompt, max_tokens=256,
+                                    temperature=temperature, api_key=api_key)
+                suggestions = _parse_llm_suggestions(raw)
 
-            all_codes = (set(active_ref.vocabulary.values()) |
-                         set(active_ref.phrases.values()) |
-                         set(active_ref.learned.values()) |
-                         set(active_ref.meta_patterns.values()))
+                for s in suggestions:
+                    orig = s["original"].strip()
+                    code = s["code"].strip()
 
-            for s in suggestions:
-                orig = s["original"].lower().strip()
-                code = s["code"].strip()
-
-                if not orig or not code or len(code) >= len(orig):
-                    continue
-                if orig in active_ref.vocabulary or orig in active_ref.learned:
-                    continue
-                if code in all_codes:
-                    for i in range(1, 10):
-                        candidate = f"{code}{i}"
-                        if candidate not in all_codes:
-                            code = candidate
-                            break
-                    else:
+                    if not orig or not code:
                         continue
-                if orig not in text.lower():
-                    continue
+                    if len(code) >= len(orig):
+                        continue
+                    if orig not in encoded:
+                        continue
+                    # Don't collide with existing codes
+                    all_codes = set(active_ref.vocabulary.values()) | set(active_ref.phrases.values()) | set(active_ref.learned.values())
+                    if code in all_codes:
+                        continue
 
-                active_ref.learned[orig] = code
-                active_ref.decode_learned[code] = orig
-                all_codes.add(code)
-                new_entries_learned.append({"original": orig, "code": code})
-                active_ref.version += 1
+                    # Apply and log
+                    encoded = encoded.replace(orig, code)
+                    all_subs.append(["abbrev", orig, code])
+                    token_optimizations.append({"original": orig, "code": code,
+                                                 "chars_saved": len(orig) - len(code)})
 
-            llm_raw = raw
-        except Exception as e:
-            llm_error = str(e)
-
-    # Step 3: Apply any newly-learned word codes
-    encoded = text
-    word_subs = []
-    if new_entries_learned:
-        for entry in new_entries_learned:
-            orig, code = entry["original"], entry["code"]
-            if orig in encoded.lower():
-                # Case-insensitive replacement
-                import re
-                encoded = re.sub(re.escape(orig), code, encoded, flags=re.IGNORECASE)
-                word_subs.append(["vocab", orig, code])
-
-    # Step 4: Structural packing (deterministic)
-    packed, pack_subs = active_ref.pack_structural(encoded)
-
-    all_subs = word_subs + pack_subs
+                llm_raw = raw
+            except Exception as e:
+                llm_error = str(e)
+                if "Connection" in str(e) or "timeout" in str(e).lower():
+                    llm_error = f"Cannot reach {provider} ({model}). " + llm_error
 
     elapsed = (time.time() - start) * 1000
+    chars_saved = len(text) - len(encoded)
 
     return {
         "layer": layer_num,
-        "type": "compact",
-        "model": model if model else "structural",
+        "type": "meta2",
+        "model": f"ref:{active_ref.name} v{active_ref.version}" + (f" + {provider}:{model}" if model else ""),
         "input": text,
-        "output": packed,
-        "method": "structural-packing",
+        "output": encoded,
+        "method": "optimize (meta2 + structural + token)",
         "input_len": len(text),
-        "output_len": len(packed),
-        "compression": round(1.0 - len(packed) / max(1, len(text)), 3),
+        "output_len": len(encoded),
+        "compression": round(1.0 - len(encoded) / max(1, len(text)), 3),
         "time_ms": round(elapsed, 1),
         "substitutions_applied": len(all_subs),
         "decode_info": {
-            "type": "compact",
+            "type": "meta2",
             "reference_name": active_ref.name,
             "reference_version": active_ref.version,
             "reference_fingerprint": active_ref.get_fingerprint(),
             "substitution_log": all_subs,
-            "pre_pack_text": encoded,  # text before structural packing
         },
         "detail": {
-            "description": "Structural packing: abbreviates remaining uncoded words, removes spaces around operators, packs coded text tighter.",
-            "status": "error" if llm_error else ("packed" if pack_subs or new_entries_learned else "passthrough"),
+            "description": "Final optimization: meta²-patterns (patterns of patterns) + structural packing + LLM token abbreviation. Three compression strategies in one pass.",
+            "status": "error" if llm_error else ("optimized" if chars_saved > 0 else "passthrough"),
             "error": llm_error,
             "llm_raw_output": llm_raw,
-            "uncoded_words_found": len(uncoded_words),
-            "uncoded_words": uncoded_words[:15],
-            "new_abbreviations_learned": new_entries_learned,
-            "structural_rules_applied": len(pack_subs),
-            "pack_rules": [{"rule": s[1], "action": s[2]} for s in pack_subs],
-            "total_chars_saved": len(text) - len(packed),
+            "phases": {
+                "meta2": {
+                    "patterns_applied": len(meta2_subs),
+                    "new_learned": new_meta2_learned,
+                    "total_meta2_patterns": len(active_ref.meta2_patterns),
+                },
+                "structural": {
+                    "packing_rules_applied": len(pack_subs),
+                },
+                "deterministic": {
+                    "abbreviations_applied": len(deterministic_abbreviations),
+                    "details": deterministic_abbreviations,
+                },
+                "token_optimization": {
+                    "abbreviations_applied": len(token_optimizations),
+                    "details": token_optimizations,
+                },
+            },
+            "meta2_candidates_found": len(meta2_candidates),
+            "top_meta2_candidates": [{"sequence": s, "count": c} for s, c in meta2_candidates[:10]],
+            "chars_saved": chars_saved,
         },
     }
+
+
+# Keep layer_compact as an alias for backward compatibility
+def layer_compact(text: str, model: str, layer_num: int,
+                  provider: str = "ollama", api_key: str = "",
+                  temperature: float = 0.3) -> dict:
+    """Backward-compat alias: compact now routes to meta² layer."""
+    return layer_meta2(text, model, layer_num, provider, api_key, temperature)
 
 
 # ===== DECODING =====
@@ -670,9 +760,25 @@ def decode_layer(layer_info: dict, current_text: str, ref: SharedReference) -> s
             return ref.decode_text(current_text)
 
     elif layer_type == "meta":
-        # Meta-pattern reversal (M.1 -> "code1 code2")
+        # Meta-pattern + structural pack reversal
         sub_log = decode_info.get("substitution_log", [])
-        return ref.decode_meta_text(current_text, sub_log)
+        result = current_text
+
+        # Separate meta and pack subs, reverse in reverse order
+        for entry in reversed(sub_log):
+            if not isinstance(entry, (list, tuple)) or len(entry) != 3:
+                continue
+            stype = entry[0]
+            if stype == "pack":
+                result = ref.unpack_structural(result, [entry])
+            elif stype == "meta":
+                sequence, meta_code = entry[1], entry[2]
+                result = result.replace(meta_code, sequence)
+
+        if not sub_log:
+            result = ref.decode_meta_text(result)
+
+        return result
 
     elif layer_type == "distill":
         # v4: distill stores codebook substitution_log
@@ -684,8 +790,39 @@ def decode_layer(layer_info: dict, current_text: str, ref: SharedReference) -> s
             return original
         return ref.decode_text(current_text)
 
+    elif layer_type == "meta2":
+        # Multi-phase decode: reverse all sub types in reverse order
+        sub_log = decode_info.get("substitution_log", [])
+        result = current_text
+
+        for entry in reversed(sub_log):
+            if not isinstance(entry, (list, tuple)) or len(entry) != 3:
+                continue
+            stype, orig, code = entry
+            if stype == "abbrev":
+                # LLM abbreviation reversal
+                result = result.replace(code, orig)
+            elif stype == "shorten":
+                # Deterministic vowel-removal reversal (word-by-word)
+                words = result.split()
+                decoded_words = []
+                for w in words:
+                    clean_w = w.rstrip(".,!?;:")
+                    trailing = w[len(clean_w):]
+                    if clean_w == code:
+                        decoded_words.append(orig + trailing)
+                    else:
+                        decoded_words.append(w)
+                result = " ".join(decoded_words)
+            elif stype == "pack":
+                result = ref.unpack_structural(result, [entry])
+            elif stype == "meta2":
+                result = result.replace(code, orig)
+
+        return result
+
     elif layer_type == "compact":
-        # Structural unpacking + abbreviation reversal
+        # Legacy: structural unpacking + abbreviation reversal
         sub_log = decode_info.get("substitution_log", [])
         result = current_text
 
@@ -697,7 +834,6 @@ def decode_layer(layer_info: dict, current_text: str, ref: SharedReference) -> s
         # Then reverse word abbreviations
         vocab_subs = [s for s in sub_log if isinstance(s, (list, tuple)) and len(s) == 3 and s[0] == "vocab"]
         if vocab_subs:
-            # Word-by-word reversal
             words = result.split()
             code_to_orig = {}
             for entry in vocab_subs:
@@ -710,7 +846,6 @@ def decode_layer(layer_info: dict, current_text: str, ref: SharedReference) -> s
                     decoded_words.append(w)
             result = " ".join(decoded_words)
 
-        # Fallback to pre_pack_text if available
         if not sub_log:
             pre = decode_info.get("pre_pack_text", "")
             if pre:
@@ -782,13 +917,13 @@ def chain_encode():
     text = data["text"]
     layer_configs = data.get("layer_configs", [])
 
-    # Default chain: distill -> reference -> compact
+    # Default chain: discover -> meta-pattern -> meta²
     if not layer_configs:
         default_model = data.get("model", "qwen2.5:1.5b")
         layer_configs = [
             {"type": "distill", "model": default_model},
             {"type": "reference"},
-            {"type": "compact", "model": default_model},
+            {"type": "meta2", "model": default_model},
         ]
 
     # Switch reference file if specified
@@ -817,7 +952,11 @@ def chain_encode():
             result = layer_reference(current, active_ref, layer_num,
                                      model=model, provider=provider,
                                      api_key=layer_api_key, **kwargs)
+        elif ltype == "meta2":
+            kwargs = {"temperature": layer_temp} if layer_temp is not None else {}
+            result = layer_meta2(current, model, layer_num, provider, layer_api_key, **kwargs)
         elif ltype == "compact":
+            # Legacy compat
             kwargs = {"temperature": layer_temp} if layer_temp is not None else {}
             result = layer_compact(current, model, layer_num, provider, layer_api_key, **kwargs)
         else:
@@ -849,7 +988,7 @@ def chain_encode():
             for l in layers
         ],
         "manifest": {
-            "version": "5.0",
+            "version": "6.0",
             "original_length": len(text),
             "encoded_length": len(current),
             "compression_ratio": round(total_compression, 3),
@@ -908,7 +1047,7 @@ def chain_stream():
         layer_configs = [
             {"type": "distill", "model": default_model},
             {"type": "reference"},
-            {"type": "compact", "model": default_model},
+            {"type": "meta2", "model": default_model},
         ]
 
     ref_name = data.get("reference", active_ref.name)
@@ -959,6 +1098,9 @@ def chain_stream():
                 result = layer_reference(current, active_ref, layer_num,
                                          model=model, provider=provider,
                                          api_key=layer_api_key, **kwargs)
+            elif ltype == "meta2":
+                kwargs = {"temperature": layer_temp} if layer_temp is not None else {}
+                result = layer_meta2(current, model, layer_num, provider, layer_api_key, **kwargs)
             elif ltype == "compact":
                 kwargs = {"temperature": layer_temp} if layer_temp is not None else {}
                 result = layer_compact(current, model, layer_num, provider, layer_api_key, **kwargs)
@@ -998,7 +1140,7 @@ def chain_stream():
                 for l in layers
             ],
             "manifest": {
-                "version": "5.0",
+                "version": "6.0",
                 "original_length": len(text),
                 "encoded_length": len(current),
                 "compression_ratio": round(total_compression, 3),
