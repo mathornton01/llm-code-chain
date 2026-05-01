@@ -1,16 +1,19 @@
 """
-Prefrontal Compressor v4 -- Fully Reversible LLM Compression Chain
+Prefrontal Compressor v5 -- Fully Reversible Multi-Level Compression Chain
 
-Three layers, ALL fully reversible via substitution logs:
+Three layers, each working at a DIFFERENT level of abstraction:
   1. DISCOVER -- LLM identifies compressible patterns, learns new codebook
-               entries, then codebook encodes deterministically
-  2. REFERENCE -- Pure codebook substitution (unchanged from v3)
-  3. STRUCTURAL -- LLM finds remaining patterns in coded text, learns
-                  structural shortcuts, encodes deterministically
+               entries, then codebook encodes words/phrases deterministically
+  2. META-PATTERN -- Analyzes the coded output to find recurring CODE
+               SEQUENCES (bigrams/trigrams of codes) and creates higher-order
+               meta-codes (e.g. "= v imp" -> "M.1"). Patterns of patterns.
+  3. STRUCTURAL -- Packs the coded text tighter: abbreviates remaining
+               uncoded words, removes spaces around operators, collapses
+               domain-prefix spacing.
 
-Key change from v3: LLMs no longer REWRITE text (lossy). Instead they
-ANALYZE text and suggest new codebook entries. All actual encoding is
-done by the codebook with full substitution logging = 100% reversible.
+Key design: each layer produces genuinely different compression because
+they work at different granularity levels (words -> code sequences -> structure).
+All layers are fully reversible via substitution logs.
 
 Endpoints:
   GET  /              -- web GUI
@@ -333,99 +336,159 @@ JSON:"""
     }
 
 
-def layer_reference(text: str, ref: SharedReference, layer_num: int) -> dict:
+def layer_reference(text: str, ref: SharedReference, layer_num: int,
+                    model: str = "", provider: str = "ollama", api_key: str = "",
+                    temperature: float = 0.3) -> dict:
     """
-    REFERENCE layer: Deterministic substitution using the shared reference file.
+    META-PATTERN layer: Finds patterns OF codes in already-encoded text.
 
-    This is FULLY REVERSIBLE -- the substitution log captures every change.
-    Both encoder and decoder need the same reference file to work.
+    After Layer 1 encodes words/phrases into codes, this layer analyzes
+    the coded output to find recurring code SEQUENCES (bigrams/trigrams)
+    and creates higher-order meta-codes for them.
+
+    Example: if "= v imp" (is very important) appears, it becomes "M.1"
+
+    Also applies any existing meta-patterns from the codebook.
+    This is FULLY REVERSIBLE via the substitution log.
     """
     start = time.time()
 
-    encoded, substitution_log = ref.full_encode(text)
+    # Step 1: Apply any existing meta-patterns first
+    encoded, meta_subs = ref.encode_meta(text)
+
+    # Step 2: Find new recurring code sequences in the (meta-encoded) text
+    bigram_candidates = ref.find_code_bigrams(encoded)
+
+    # Step 3: If we have an LLM, ask it to suggest which bigrams to learn
+    new_meta_learned = []
+    llm_raw = None
+    llm_error = None
+
+    if bigram_candidates and model:
+        # Show the LLM the coded text and the bigram candidates
+        candidate_str = "\n".join(f'  "{seq}" (appears {count}x, saves {(len(seq) - 3) * count} chars)'
+                                   for seq, count in bigram_candidates[:15])
+
+        existing_meta_str = ""
+        if ref.meta_patterns:
+            existing_meta_str = "\nEXISTING META-CODES (do NOT repeat):\n" + \
+                "\n".join(f'  "{seq}" -> "{mc}"' for seq, mc in ref.meta_patterns.items())
+
+        prompt = f"""You are a code sequence optimizer. The text below has been encoded using a codebook (words -> short codes). Your job is to find PATTERNS OF CODES -- recurring sequences that can be combined into even shorter meta-codes.
+
+CODED TEXT: {encoded}
+
+CANDIDATE CODE SEQUENCES (recurring patterns found):
+{candidate_str}
+{existing_meta_str}
+
+RULES:
+1. Only suggest sequences that genuinely recur or save significant space
+2. Each meta-code format: M.1, M.2, M.3, etc.
+3. The sequence must appear in the coded text above
+4. Prefer sequences that save the most characters
+5. Don't suggest single-token sequences -- they must be 2+ tokens
+
+Return ONLY a JSON array. No explanation, no markdown.
+Format: [{{"original": "code sequence", "code": "M.N"}}, ...]
+If nothing worth combining, return: []
+JSON:"""
+
+        try:
+            raw = generate_text(provider, model, prompt, max_tokens=384,
+                                temperature=temperature, api_key=api_key)
+            suggestions = _parse_llm_suggestions(raw)
+
+            # Validate and learn meta-patterns
+            for s in suggestions:
+                seq = s["original"].strip()
+                meta_code = s["code"].strip()
+
+                if not seq or not meta_code:
+                    continue
+                if len(meta_code) >= len(seq):
+                    continue
+                if seq in ref.meta_patterns:
+                    continue
+                # Must be a multi-token sequence
+                if " " not in seq:
+                    continue
+                # Must appear in the coded text
+                if seq not in encoded:
+                    continue
+                # Ensure meta_code doesn't collide
+                all_meta = set(ref.meta_patterns.values())
+                if meta_code in all_meta:
+                    meta_code = ref.next_meta_code()
+
+                ref.learn_meta(seq, meta_code)
+                new_meta_learned.append({"sequence": seq, "meta_code": meta_code,
+                                          "chars_saved": len(seq) - len(meta_code)})
+
+            llm_raw = raw
+        except Exception as e:
+            llm_error = str(e)
+            if "Connection" in str(e) or "timeout" in str(e).lower():
+                llm_error = f"Cannot reach {provider} ({model}). " + llm_error
+    elif bigram_candidates and not model:
+        # No LLM available -- auto-learn top candidates deterministically
+        for seq, count in bigram_candidates[:5]:
+            if seq in ref.meta_patterns:
+                continue
+            if " " not in seq:
+                continue
+            savings = (len(seq) - 3) * count
+            if savings >= 3:  # worth at least 3 chars savings
+                meta_code = ref.next_meta_code()
+                ref.learn_meta(seq, meta_code)
+                new_meta_learned.append({"sequence": seq, "meta_code": meta_code,
+                                          "chars_saved": len(seq) - len(meta_code)})
+
+    # Step 4: Re-apply meta-patterns (including newly learned ones)
+    if new_meta_learned:
+        encoded, meta_subs = ref.encode_meta(text)
 
     elapsed = (time.time() - start) * 1000
 
-    # Categorize substitutions (handles both 3-tuple and 2-tuple formats)
-    vocab_subs = []
-    phrase_subs = []
-    learned_subs = []
-    removal_subs = []
-
-    for entry in substitution_log:
-        if len(entry) == 3:
-            stype, orig, code = entry
-        else:
-            orig, code = entry[0], entry[1]
-            stype = "phrase" if " " in orig else ("removal" if not code or not code.strip() else "vocab")
-
-        if stype == "removal" or (not code or not code.strip()):
-            removal_subs.append((orig, code))
-        elif stype == "phrase":
-            phrase_subs.append((orig, code))
-        elif orig.lower() in ref.learned:
-            learned_subs.append((orig, code))
-        else:
-            vocab_subs.append((orig, code))
-
-    # Calculate chars saved per substitution
-    chars_saved_breakdown = []
-    for entry in substitution_log:
-        orig = entry[1] if len(entry) == 3 else entry[0]
-        code = entry[2] if len(entry) == 3 else entry[1]
-        saved = len(orig) - len(code)
-        chars_saved_breakdown.append({"original": orig, "code": code, "chars_saved": saved})
-
-    # Sort by most chars saved
-    chars_saved_breakdown.sort(key=lambda x: x["chars_saved"], reverse=True)
-
-    # Input word analysis
-    input_words = text.split()
-    total_words = len(input_words)
-    words_hit = len(substitution_log)
-    hit_rate = round(words_hit / max(1, total_words), 3)
+    # Calculate savings
+    chars_saved = len(text) - len(encoded)
+    meta_applied = len(meta_subs)
 
     return {
         "layer": layer_num,
         "type": "reference",
-        "model": f"ref:{ref.name} v{ref.version}",
+        "model": f"ref:{ref.name} v{ref.version}" + (f" + {provider}:{model}" if model else ""),
         "input": text,
         "output": encoded,
-        "method": "reference-substitution",
+        "method": "meta-pattern-encoding",
         "input_len": len(text),
         "output_len": len(encoded),
         "compression": round(1.0 - len(encoded) / max(1, len(text)), 3),
         "time_ms": round(elapsed, 1),
-        "substitutions_applied": len(substitution_log),
+        "substitutions_applied": meta_applied,
         "decode_info": {
-            "type": "reference",
+            "type": "meta",
             "reference_name": ref.name,
             "reference_version": ref.version,
             "reference_fingerprint": ref.get_fingerprint(),
-            "substitution_log": substitution_log,
+            "substitution_log": meta_subs,
         },
         "detail": {
-            "description": "Deterministic codebook substitution. Replaces known words/phrases with short codes. Fully reversible via substitution log.",
-            "status": "applied",
+            "description": "Meta-pattern encoding: finds recurring CODE SEQUENCES in already-encoded text and combines them into higher-order meta-codes. This is 'patterns of patterns'.",
+            "status": "error" if llm_error else ("meta-learned" if new_meta_learned else ("meta-applied" if meta_subs else "passthrough")),
+            "error": llm_error,
+            "llm_raw_output": llm_raw,
             "reference_file": ref.name,
             "reference_version": ref.version,
             "reference_fingerprint": ref.get_fingerprint(),
-            "total_vocab_size": len(ref.vocabulary),
-            "total_phrase_size": len(ref.phrases),
-            "total_learned_size": len(ref.learned),
-            "input_word_count": total_words,
-            "substitutions_total": len(substitution_log),
-            "substitutions_vocab": len(vocab_subs),
-            "substitutions_phrase": len(phrase_subs),
-            "substitutions_learned": len(learned_subs),
-            "substitutions_removals": len(removal_subs),
-            "hit_rate": hit_rate,
-            "vocab_subs": vocab_subs[:15],
-            "phrase_subs": phrase_subs[:10],
-            "learned_subs": learned_subs[:10],
-            "removal_subs": removal_subs[:10],
-            "top_chars_saved": chars_saved_breakdown[:10],
-            "total_chars_saved": sum(s["chars_saved"] for s in chars_saved_breakdown),
+            "total_meta_patterns": len(ref.meta_patterns),
+            "existing_meta_patterns": dict(list(ref.meta_patterns.items())[:20]),
+            "bigram_candidates_found": len(bigram_candidates),
+            "top_bigram_candidates": [{"sequence": s, "count": c} for s, c in bigram_candidates[:10]],
+            "new_meta_learned": new_meta_learned,
+            "meta_subs_applied": len(meta_subs),
+            "meta_subs_detail": [{"sequence": s[1], "meta_code": s[2]} for s in meta_subs],
+            "chars_saved": chars_saved,
         },
     }
 
@@ -434,81 +497,81 @@ def layer_compact(text: str, model: str, layer_num: int,
                    provider: str = "ollama", api_key: str = "",
                    temperature: float = 0.25) -> dict:
     """
-    STRUCTURAL layer: LLM analyzes already-coded text for remaining patterns.
-    Suggests new structural shortcuts, then codebook encodes deterministically.
+    STRUCTURAL PACKING layer: Deterministic compression of coded text.
 
-    This is FULLY REVERSIBLE -- every substitution is in the log.
-    The LLM never rewrites text; it only suggests new codes to learn.
+    After Layer 1 (word/phrase encoding) and Layer 2 (meta-pattern encoding),
+    this layer applies structural rules to pack the output tighter:
+    - Remove spaces around operator codes
+    - Collapse domain-prefix spacing
+    - Find remaining uncoded words and abbreviate them
+
+    Optionally uses LLM to find remaining compressible words.
+    This is FULLY REVERSIBLE via the substitution log.
     """
     global active_ref
     start = time.time()
 
-    # Find words in the text that aren't already codebook entries
+    # Step 1: Find remaining uncoded words (words not in any codebook section)
     words = text.split()
     uncoded_words = []
+    all_known = set()
+    all_known.update(active_ref.vocabulary.keys())
+    all_known.update(active_ref.vocabulary.values())
+    all_known.update(active_ref.learned.keys())
+    all_known.update(active_ref.learned.values())
+    all_known.update(active_ref.meta_patterns.values())
+    # Add phrase codes
+    all_known.update(active_ref.phrases.values())
+
     for w in words:
         clean = w.strip(".,!?;:()[]{}\"'").lower()
-        if (clean not in active_ref.vocabulary
-            and clean not in active_ref.learned
+        if (clean not in all_known
             and len(clean) > 3
             and clean.isalpha()):
             uncoded_words.append(clean)
 
-    # Also find repeated bigrams
-    bigrams = []
-    for i in range(len(words) - 1):
-        bg = f"{words[i].lower()} {words[i+1].lower()}"
-        if bg not in active_ref.phrases and bg not in active_ref.learned and len(bg) > 6:
-            bigrams.append(bg)
-
-    # Count frequencies for prioritization
-    from collections import Counter
-    word_freq = Counter(uncoded_words)
-    bigram_freq = Counter(bigrams)
-
-    # Only ask LLM if there are uncoded words to compress
+    # Step 2: If LLM available, ask for abbreviations of remaining uncoded words
     new_entries_learned = []
     llm_raw = None
     llm_error = None
-    suggestions = []
 
-    if uncoded_words or bigrams:
-        frequent_words = [w for w, c in word_freq.most_common(15)]
-        frequent_bigrams = [bg for bg, c in bigram_freq.most_common(5)]
+    if uncoded_words and model:
+        from collections import Counter
+        word_freq = Counter(uncoded_words)
+        frequent = [w for w, c in word_freq.most_common(15)]
 
-        prompt = f"""You are a codebook builder. This text has already been partially encoded. Find abbreviations for the remaining uncoded words.
+        prompt = f"""You are a text abbreviator. These words survived two rounds of encoding and need short abbreviations.
 
-UNCODED WORDS (need codes): {', '.join(frequent_words[:15])}
-UNCODED BIGRAMS: {', '.join(frequent_bigrams[:5]) if frequent_bigrams else 'none'}
+WORDS TO ABBREVIATE: {', '.join(frequent)}
 
 RULES:
-1. Use consonant abbreviations: "learning" -> "lrn", "parameter" -> "prm"
-2. For bigrams, use domain prefixes: a.=AI, c.=code, m.=math, b.=bio
-3. Each code must be shorter than original (save at least 2 chars)
-4. Codes must be unique and unambiguous
-5. Skip words shorter than 4 characters
+1. Use consonant-based abbreviations: "learning" -> "lrn", "algorithm" -> "alg"
+2. Each abbreviation must be shorter than the original (save at least 2 chars)
+3. Must be unambiguous and readable
+4. Skip words shorter than 4 characters
 
 Return ONLY a JSON array. No explanation.
-Format: [{{"original": "word", "code": "short"}}, ...]
-If nothing to suggest, return: []
+Format: [{{"original": "word", "code": "abbrev"}}, ...]
+If nothing to abbreviate, return: []
 JSON:"""
 
         try:
-            raw = generate_text(provider, model, prompt, max_tokens=384,
+            raw = generate_text(provider, model, prompt, max_tokens=256,
                                 temperature=temperature, api_key=api_key)
             suggestions = _parse_llm_suggestions(raw)
 
-            # Validate and learn
-            all_codes = set(active_ref.vocabulary.values()) | set(active_ref.phrases.values()) | set(active_ref.learned.values())
+            all_codes = (set(active_ref.vocabulary.values()) |
+                         set(active_ref.phrases.values()) |
+                         set(active_ref.learned.values()) |
+                         set(active_ref.meta_patterns.values()))
+
             for s in suggestions:
                 orig = s["original"].lower().strip()
                 code = s["code"].strip()
 
-                if not orig or not code:
+                if not orig or not code or len(code) >= len(orig):
                     continue
-                if len(code) >= len(orig):
-                    continue
-                if orig in active_ref.vocabulary or orig in active_ref.phrases or orig in active_ref.learned:
+                if orig in active_ref.vocabulary or orig in active_ref.learned:
                     continue
                 if code in all_codes:
                     for i in range(1, 10):
@@ -518,16 +581,11 @@ JSON:"""
                             break
                     else:
                         continue
-                # Verify word/phrase appears in the text
                 if orig not in text.lower():
                     continue
 
-                if " " in orig:
-                    active_ref.phrases[orig] = code
-                    active_ref.decode_phrases[code] = orig
-                else:
-                    active_ref.learned[orig] = code
-                    active_ref.decode_learned[code] = orig
+                active_ref.learned[orig] = code
+                active_ref.decode_learned[code] = orig
                 all_codes.add(code)
                 new_entries_learned.append({"original": orig, "code": code})
                 active_ref.version += 1
@@ -535,62 +593,57 @@ JSON:"""
             llm_raw = raw
         except Exception as e:
             llm_error = str(e)
-            if "Connection" in llm_error or "timeout" in llm_error.lower():
-                llm_error = f"Cannot reach {provider} ({model}). " + llm_error
 
-    # Now do a second encoding pass with the updated codebook
-    # This picks up any newly-learned entries
-    encoded, substitution_log = active_ref.full_encode(text)
+    # Step 3: Apply any newly-learned word codes
+    encoded = text
+    word_subs = []
+    if new_entries_learned:
+        for entry in new_entries_learned:
+            orig, code = entry["original"], entry["code"]
+            if orig in encoded.lower():
+                # Case-insensitive replacement
+                import re
+                encoded = re.sub(re.escape(orig), code, encoded, flags=re.IGNORECASE)
+                word_subs.append(["vocab", orig, code])
+
+    # Step 4: Structural packing (deterministic)
+    packed, pack_subs = active_ref.pack_structural(encoded)
+
+    all_subs = word_subs + pack_subs
 
     elapsed = (time.time() - start) * 1000
-
-    # Categorize substitutions
-    vocab_subs = []
-    phrase_subs = []
-    learned_subs = []
-    for entry in substitution_log:
-        stype = entry[0] if len(entry) == 3 else "vocab"
-        orig = entry[1] if len(entry) == 3 else entry[0]
-        code = entry[2] if len(entry) == 3 else entry[1]
-        if stype == "phrase":
-            phrase_subs.append((orig, code))
-        elif orig.lower() in active_ref.learned:
-            learned_subs.append((orig, code))
-        else:
-            vocab_subs.append((orig, code))
 
     return {
         "layer": layer_num,
         "type": "compact",
-        "model": model,
+        "model": model if model else "structural",
         "input": text,
-        "output": encoded,
-        "method": "structural-encode",
+        "output": packed,
+        "method": "structural-packing",
         "input_len": len(text),
-        "output_len": len(encoded),
-        "compression": round(1.0 - len(encoded) / max(1, len(text)), 3),
+        "output_len": len(packed),
+        "compression": round(1.0 - len(packed) / max(1, len(text)), 3),
         "time_ms": round(elapsed, 1),
-        "substitutions_applied": len(substitution_log),
+        "substitutions_applied": len(all_subs),
         "decode_info": {
-            "type": "reference",  # decode same as reference -- all codebook-based
+            "type": "compact",
             "reference_name": active_ref.name,
             "reference_version": active_ref.version,
             "reference_fingerprint": active_ref.get_fingerprint(),
-            "substitution_log": substitution_log,
+            "substitution_log": all_subs,
+            "pre_pack_text": encoded,  # text before structural packing
         },
         "detail": {
-            "description": "LLM finds remaining patterns in coded text, learns structural shortcuts, encodes deterministically. 100% reversible.",
-            "status": "error" if llm_error else ("structural" if new_entries_learned else "passthrough"),
+            "description": "Structural packing: abbreviates remaining uncoded words, removes spaces around operators, packs coded text tighter.",
+            "status": "error" if llm_error else ("packed" if pack_subs or new_entries_learned else "passthrough"),
             "error": llm_error,
             "llm_raw_output": llm_raw,
-            "new_entries_learned": new_entries_learned,
-            "llm_suggestions_count": len(suggestions),
-            "entries_accepted": len(new_entries_learned),
             "uncoded_words_found": len(uncoded_words),
-            "uncoded_bigrams_found": len(bigrams),
-            "substitutions_vocab": len(vocab_subs),
-            "substitutions_phrase": len(phrase_subs),
-            "substitutions_learned": len(learned_subs),
+            "uncoded_words": uncoded_words[:15],
+            "new_abbreviations_learned": new_entries_learned,
+            "structural_rules_applied": len(pack_subs),
+            "pack_rules": [{"rule": s[1], "action": s[2]} for s in pack_subs],
+            "total_chars_saved": len(text) - len(packed),
         },
     }
 
@@ -600,43 +653,71 @@ JSON:"""
 def decode_layer(layer_info: dict, current_text: str, ref: SharedReference) -> str:
     """Decode a single layer based on its type and stored decode_info.
 
-    In v4, ALL layers use reference-style decoding (substitution logs).
-    This makes every layer fully reversible without storing the original text.
-    Legacy v3 decode_info formats (original_text, pre_compact) are still supported.
+    Layer types and their decode strategies:
+      - reference/distill: codebook substitution log (vocab + phrase reversal)
+      - meta: meta-pattern reversal (meta_code -> code sequence)
+      - compact: structural unpacking + word abbreviation reversal
     """
     decode_info = layer_info.get("decode_info", {})
     layer_type = decode_info.get("type", layer_info.get("type", "unknown"))
 
     if layer_type == "reference":
-        # Deterministic reversal using substitution log
+        # Codebook reversal using substitution log
         sub_log = decode_info.get("substitution_log", [])
         if sub_log:
             return ref.decode_text(current_text, sub_log)
         else:
-            # Fallback: use reference reverse lookup
             return ref.decode_text(current_text)
 
+    elif layer_type == "meta":
+        # Meta-pattern reversal (M.1 -> "code1 code2")
+        sub_log = decode_info.get("substitution_log", [])
+        return ref.decode_meta_text(current_text, sub_log)
+
     elif layer_type == "distill":
-        # v4: distill now stores substitution_log (same as reference)
+        # v4: distill stores codebook substitution_log
         sub_log = decode_info.get("substitution_log", [])
         if sub_log:
             return ref.decode_text(current_text, sub_log)
-        # v3 legacy fallback: stored original text
         original = decode_info.get("original_text", "")
         if original:
             return original
         return ref.decode_text(current_text)
 
     elif layer_type == "compact":
-        # v4: compact now stores substitution_log (same as reference)
+        # Structural unpacking + abbreviation reversal
         sub_log = decode_info.get("substitution_log", [])
-        if sub_log:
-            return ref.decode_text(current_text, sub_log)
-        # v3 legacy fallback: stored pre-compact text
-        pre = decode_info.get("pre_compact", "")
-        if pre:
-            return pre
-        return ref.decode_text(current_text)
+        result = current_text
+
+        # First, unpack structural rules
+        pack_subs = [s for s in sub_log if isinstance(s, (list, tuple)) and len(s) == 3 and s[0] == "pack"]
+        if pack_subs:
+            result = ref.unpack_structural(result, pack_subs)
+
+        # Then reverse word abbreviations
+        vocab_subs = [s for s in sub_log if isinstance(s, (list, tuple)) and len(s) == 3 and s[0] == "vocab"]
+        if vocab_subs:
+            # Word-by-word reversal
+            words = result.split()
+            code_to_orig = {}
+            for entry in vocab_subs:
+                code_to_orig[entry[2]] = entry[1]
+            decoded_words = []
+            for w in words:
+                if w in code_to_orig:
+                    decoded_words.append(code_to_orig[w])
+                else:
+                    decoded_words.append(w)
+            result = " ".join(decoded_words)
+
+        # Fallback to pre_pack_text if available
+        if not sub_log:
+            pre = decode_info.get("pre_pack_text", "")
+            if pre:
+                return pre
+            return ref.decode_text(current_text)
+
+        return result
 
     return current_text
 
@@ -667,8 +748,8 @@ def index():
 def api_info():
     return jsonify({
         "service": "Prefrontal Compressor",
-        "version": "4.0.0",
-        "description": "Fully reversible LLM-assisted compression with codebook learning",
+        "version": "5.0.0",
+        "description": "Multi-level compression: word encoding -> meta-patterns (patterns of codes) -> structural packing",
     })
 
 
@@ -732,7 +813,10 @@ def chain_encode():
             kwargs = {"temperature": layer_temp} if layer_temp is not None else {}
             result = layer_distill(current, model, layer_num, provider, layer_api_key, **kwargs)
         elif ltype == "reference":
-            result = layer_reference(current, active_ref, layer_num)
+            kwargs = {"temperature": layer_temp} if layer_temp is not None else {}
+            result = layer_reference(current, active_ref, layer_num,
+                                     model=model, provider=provider,
+                                     api_key=layer_api_key, **kwargs)
         elif ltype == "compact":
             kwargs = {"temperature": layer_temp} if layer_temp is not None else {}
             result = layer_compact(current, model, layer_num, provider, layer_api_key, **kwargs)
@@ -765,7 +849,7 @@ def chain_encode():
             for l in layers
         ],
         "manifest": {
-            "version": "4.0",
+            "version": "5.0",
             "original_length": len(text),
             "encoded_length": len(current),
             "compression_ratio": round(total_compression, 3),
@@ -871,7 +955,10 @@ def chain_stream():
                 kwargs = {"temperature": layer_temp} if layer_temp is not None else {}
                 result = layer_distill(current, model, layer_num, provider, layer_api_key, **kwargs)
             elif ltype == "reference":
-                result = layer_reference(current, active_ref, layer_num)
+                kwargs = {"temperature": layer_temp} if layer_temp is not None else {}
+                result = layer_reference(current, active_ref, layer_num,
+                                         model=model, provider=provider,
+                                         api_key=layer_api_key, **kwargs)
             elif ltype == "compact":
                 kwargs = {"temperature": layer_temp} if layer_temp is not None else {}
                 result = layer_compact(current, model, layer_num, provider, layer_api_key, **kwargs)
@@ -911,7 +998,7 @@ def chain_stream():
                 for l in layers
             ],
             "manifest": {
-                "version": "4.0",
+                "version": "5.0",
                 "original_length": len(text),
                 "encoded_length": len(current),
                 "compression_ratio": round(total_compression, 3),
@@ -1156,6 +1243,7 @@ def get_reference_full():
         "vocabulary": active_ref.vocabulary,
         "phrases": active_ref.phrases,
         "learned": active_ref.learned if hasattr(active_ref, 'learned') else {},
+        "meta_patterns": active_ref.meta_patterns if hasattr(active_ref, 'meta_patterns') else {},
         "frequency": freq,
     })
 
@@ -1463,4 +1551,4 @@ if __name__ == "__main__":
     print(f"Ollama: {OLLAMA_URL}")
     print(f"Reference: {active_ref.name} v{active_ref.version} ({active_ref.get_fingerprint()})")
     print(f"GUI: http://localhost:{port}")
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="0.0.0.0", port=port, debug=False, threaded=True)

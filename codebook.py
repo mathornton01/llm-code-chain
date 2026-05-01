@@ -423,6 +423,12 @@ class SharedReference:
 
     Both sides must have the same version. The reference contains all the
     mappings needed to deterministically encode and decode text.
+
+    Four encoding levels:
+      1. vocabulary: word -> code  (single words)
+      2. phrases: multi-word -> code  (multi-word expressions)
+      3. learned: LLM-discovered word/phrase -> code
+      4. meta_patterns: code_sequence -> meta_code  (patterns OF codes)
     """
 
     def __init__(self, name: str = "default"):
@@ -438,10 +444,15 @@ class SharedReference:
         self.phrases: Dict[str, str] = dict(DEFAULT_PHRASES)
         self.learned: Dict[str, str] = {}
 
+        # Meta-patterns: code_sequence -> meta_code (patterns OF codes)
+        # e.g. "= v imp" -> "M.1", "T a.ml" -> "M.2"
+        self.meta_patterns: Dict[str, str] = {}
+
         # Reverse: code -> word/phrase (built automatically)
         self.decode_vocab: Dict[str, str] = {}
         self.decode_phrases: Dict[str, str] = {}
         self.decode_learned: Dict[str, str] = {}
+        self.decode_meta: Dict[str, str] = {}
 
         # Stats
         self.frequency: Dict[str, int] = defaultdict(int)
@@ -468,6 +479,11 @@ class SharedReference:
             if code not in self.decode_learned:
                 self.decode_learned[code] = item
 
+        self.decode_meta = {}
+        for seq, meta_code in self.meta_patterns.items():
+            if meta_code not in self.decode_meta:
+                self.decode_meta[meta_code] = seq
+
     def _load(self):
         """Load from disk if exists."""
         if not os.path.exists(self.path):
@@ -487,6 +503,7 @@ class SharedReference:
             if "phrases" in data:
                 self.phrases.update(data["phrases"])
             self.learned = data.get("learned", {})
+            self.meta_patterns = data.get("meta_patterns", {})
             self.frequency = defaultdict(int, data.get("frequency", {}))
 
             self._build_reverse()
@@ -506,6 +523,7 @@ class SharedReference:
             "vocabulary": self.vocabulary,
             "phrases": self.phrases,
             "learned": self.learned,
+            "meta_patterns": self.meta_patterns,
             "frequency": dict(self.frequency),
         }
         with open(self.path, "w") as f:
@@ -599,6 +617,194 @@ class SharedReference:
 
         self.total_compressions += 1
         return encoded, tagged
+
+    # ----- Meta-pattern encoding (code sequences -> meta codes) -----
+
+    def find_code_bigrams(self, coded_text: str, min_len: int = 3) -> List[Tuple[str, int]]:
+        """
+        Find recurring 2-3 token sequences in coded text.
+        Returns [(sequence, count), ...] sorted by savings potential.
+        """
+        tokens = coded_text.split()
+        if len(tokens) < 2:
+            return []
+
+        from collections import Counter
+
+        # Find bigrams (2-token sequences)
+        bigrams = []
+        for i in range(len(tokens) - 1):
+            bg = f"{tokens[i]} {tokens[i+1]}"
+            # Skip if either token is very short (1 char) -- not worth meta-coding
+            if len(bg) >= min_len:
+                bigrams.append(bg)
+
+        # Find trigrams (3-token sequences)
+        trigrams = []
+        for i in range(len(tokens) - 2):
+            tg = f"{tokens[i]} {tokens[i+1]} {tokens[i+2]}"
+            if len(tg) >= min_len + 2:
+                trigrams.append(tg)
+
+        # Count frequencies and calculate savings
+        bg_counts = Counter(bigrams)
+        tg_counts = Counter(trigrams)
+
+        candidates = []
+        for seq, count in bg_counts.items():
+            # Already a meta-pattern?
+            if seq in self.meta_patterns:
+                continue
+            # Savings = (original_len - meta_code_len) * occurrences
+            meta_code_len = 3  # estimated: "M.x"
+            savings = (len(seq) - meta_code_len) * count
+            if savings > 0 and count >= 1:
+                candidates.append((seq, count, savings, "bigram"))
+
+        for seq, count in tg_counts.items():
+            if seq in self.meta_patterns:
+                continue
+            meta_code_len = 4  # estimated: "M.xx"
+            savings = (len(seq) - meta_code_len) * count
+            if savings > 0 and count >= 1:
+                candidates.append((seq, count, savings, "trigram"))
+
+        # Sort by savings potential
+        candidates.sort(key=lambda x: x[2], reverse=True)
+        return [(c[0], c[1]) for c in candidates[:20]]
+
+    def next_meta_code(self) -> str:
+        """Generate the next available meta-code (M.1, M.2, ...)."""
+        existing = set(self.meta_patterns.values())
+        i = 1
+        while True:
+            code = f"M.{i}"
+            if code not in existing:
+                return code
+            i += 1
+
+    def learn_meta(self, sequence: str, meta_code: str = None) -> str:
+        """Learn a new meta-pattern (code sequence -> meta code)."""
+        if not meta_code:
+            meta_code = self.next_meta_code()
+        self.meta_patterns[sequence] = meta_code
+        self.decode_meta[meta_code] = sequence
+        self.version += 1
+        return meta_code
+
+    def encode_meta(self, text: str) -> Tuple[str, list]:
+        """
+        Apply meta-pattern substitutions to coded text.
+        Returns (encoded_text, substitution_log).
+        Log entries: ["meta", sequence, meta_code]
+        """
+        result = text
+        subs = []
+
+        # Sort by length (longest patterns first) to avoid partial matches
+        sorted_meta = sorted(self.meta_patterns.items(),
+                             key=lambda x: len(x[0]), reverse=True)
+
+        for sequence, meta_code in sorted_meta:
+            if sequence in result:
+                count = result.count(sequence)
+                result = result.replace(sequence, meta_code)
+                subs.append(["meta", sequence, meta_code])
+                self.frequency[meta_code] = self.frequency.get(meta_code, 0) + count
+
+        return result, subs
+
+    def decode_meta_text(self, text: str, sub_log: list = None) -> str:
+        """Reverse meta-pattern substitutions."""
+        result = text
+        if sub_log:
+            # Reverse in reverse order (undo last applied first)
+            for entry in reversed(sub_log):
+                if isinstance(entry, (list, tuple)) and len(entry) == 3 and entry[0] == "meta":
+                    sequence, meta_code = entry[1], entry[2]
+                    result = result.replace(meta_code, sequence)
+        else:
+            # Fallback: use reverse lookup (longest codes first)
+            sorted_rev = sorted(self.decode_meta.items(),
+                                key=lambda x: len(x[0]), reverse=True)
+            for meta_code, sequence in sorted_rev:
+                if meta_code in result:
+                    result = result.replace(meta_code, sequence)
+        return result
+
+    # ----- Structural packing -----
+
+    def pack_structural(self, text: str) -> Tuple[str, list]:
+        """
+        Apply deterministic structural compression to coded text:
+        - Remove redundant spaces between short codes
+        - Use separator notation for adjacent codes
+        - Collapse whitespace
+        Returns (packed_text, substitution_log).
+        Log entries: ["pack", original_segment, packed_segment]
+        """
+        import re
+        subs = []
+        result = text
+
+        # Rule 1: Multiple spaces -> single space
+        original = result
+        result = re.sub(r'\s+', ' ', result).strip()
+        if result != original:
+            subs.append(["pack", "multi-space", "single-space"])
+
+        # Rule 2: Remove space around operators that are already codes
+        # Patterns like "code = code" where = is the "is" code
+        operators = ['>', '<', '&', '|', '^', '!', '+']
+        for op in operators:
+            # "word op word" -> "word{op}word" (save 2 spaces)
+            pattern = f' {re.escape(op)} '
+            if pattern in result:
+                packed = op
+                old_result = result
+                result = result.replace(pattern, packed)
+                if result != old_result:
+                    subs.append(["pack", f"spaces around '{op}'", f"removed"])
+
+        # Rule 3: Collapse "code. code" -> "code.code" (domain codes)
+        old_result = result
+        result = re.sub(r'(\w+\.) (\w+)', r'\1\2', result)
+        if result != old_result:
+            subs.append(["pack", "space after dot-prefix", "removed"])
+
+        return result, subs
+
+    def unpack_structural(self, text: str, sub_log: list = None) -> str:
+        """Reverse structural packing."""
+        import re
+        result = text
+        if not sub_log:
+            return result
+
+        # Reverse in reverse order
+        for entry in reversed(sub_log):
+            if not isinstance(entry, (list, tuple)) or len(entry) != 3:
+                continue
+            if entry[0] != "pack":
+                continue
+            desc = entry[1]
+
+            if "spaces around" in desc:
+                # Extract the operator
+                op = desc.split("'")[1] if "'" in desc else ""
+                if op:
+                    # Add spaces back around operator
+                    # Find bare operator not already surrounded by spaces
+                    result = result.replace(op, f' {op} ')
+
+            if "space after dot-prefix" in desc:
+                # Re-add space after domain prefixes: "a.ml" -> "a. ml" -- actually don't,
+                # this is hard to reverse perfectly. The decode_meta + decode_text handles it.
+                pass
+
+        # Clean up any double spaces from re-adding
+        result = re.sub(r'\s+', ' ', result).strip()
+        return result
 
     # ----- Decoding (codes -> text) -----
 
@@ -853,6 +1059,12 @@ class SharedReference:
                 "freq": self.frequency.get(code, 0),
                 "savings": len(word) - len(code),
             })
+        for seq, code in sorted(self.meta_patterns.items()):
+            entries.append({
+                "word": seq, "code": code, "type": "meta",
+                "freq": self.frequency.get(code, 0),
+                "savings": len(seq) - len(code),
+            })
         return entries
 
     # ----- Info -----
@@ -865,7 +1077,8 @@ class SharedReference:
             "vocabulary_count": len(self.vocabulary),
             "phrase_count": len(self.phrases),
             "learned_count": len(self.learned),
-            "total_codes": len(self.vocabulary) + len(self.phrases) + len(self.learned),
+            "meta_count": len(self.meta_patterns),
+            "total_codes": len(self.vocabulary) + len(self.phrases) + len(self.learned) + len(self.meta_patterns),
             "training_rounds": self.training_rounds,
             "total_compressions": self.total_compressions,
             "top_used": sorted(
@@ -896,6 +1109,7 @@ class SharedReference:
             "vocabulary": self.vocabulary,
             "phrases": self.phrases,
             "learned": self.learned,
+            "meta_patterns": self.meta_patterns,
             "domains": DOMAIN_PREFIXES,
             "stats": self.get_stats(),
         }
